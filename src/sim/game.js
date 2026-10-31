@@ -3,11 +3,11 @@
 // tight loop. Commands (buy, upgrade, formation) are applied between ticks.
 import {
   DT, MARCH_SPEED, TOWER_OFFSET, ENGAGE_DIST, JOIN_DIST, WAVE_INTERVAL, PLAYER_HP,
-  UNIT_COST, UPGRADE_COST, MAX_GAME_SECONDS, FACTION_BY_ID, startingWave,
+  UNIT_COST, UPGRADE_COST, MAX_GAME_SECONDS, FACTION_BY_ID, TOWER_STATS, startingWave,
   defaultFormation, effectiveStats,
 } from './data.js';
 import { Rng } from './rng.js';
-import { Battle, hitChance } from './battle.js';
+import { Battle, hitChance, hitDamage } from './battle.js';
 import {
   LANES, laneNodes, continueNodes, routeFromNodes, makeRoute, posAt, segmentAt,
 } from './map.js';
@@ -48,6 +48,8 @@ export class Game {
     this.winner = null;
     this.events = [];
     this.firstBattleWinner = null;
+    this.towers = new Map(); // "player:x,y" -> { cooldown }
+    this.towerShots = []; // recent shots, for rendering
   }
 
   alive() {
@@ -117,6 +119,7 @@ export class Game {
       }
       if (a.state === 'siege') this.siege(a);
     }
+    this.towerFire();
 
     for (const b of this.battles) b.step();
     this.endBattles();
@@ -171,6 +174,39 @@ export class Game {
     for (const u of a.units) dmg += u.stats.spd * hitChance(u.stats.acc, 0) * u.stats.dmg * DT;
     p.hp -= dmg;
     this.players[a.owner].towerDamage += dmg;
+  }
+
+  // Each lane's tower shoots one random unit among the armies sieging it.
+  towerFire() {
+    const groups = new Map();
+    for (const a of this.armies) {
+      if (a.state !== 'siege' || !a.units.length) continue;
+      const target = a.route.nodes[a.route.nodes.length - 1];
+      const p = this.armyPos(a);
+      const key = `${target}:${Math.round(p.x)},${Math.round(p.y)}`;
+      if (!groups.has(key)) groups.set(key, { target, x: p.x, y: p.y, armies: [] });
+      groups.get(key).armies.push(a);
+    }
+    for (const t of this.towers.values()) t.cooldown -= DT;
+    for (const [key, g] of groups) {
+      if (!this.players[g.target].alive) continue;
+      const tower = this.towers.get(key) || { cooldown: 0 };
+      this.towers.set(key, tower);
+      if (tower.cooldown > 0) continue;
+      tower.cooldown = 1 / TOWER_STATS.spd;
+      const units = g.armies.flatMap((a) => a.units);
+      const victim = this.rng.pick(units);
+      const hit = this.rng.next() < hitChance(TOWER_STATS.acc, victim.stats.eva);
+      this.towerShots.push({ t: this.time, x: g.x, y: g.y, owner: g.target, hit });
+      if (!hit) continue;
+      victim.hp -= hitDamage(TOWER_STATS.dmg, victim.stats.arm);
+      if (victim.hp <= 0) {
+        for (const a of g.armies) a.units = a.units.filter((u) => u !== victim);
+        this.onKill(g.target, victim);
+      }
+    }
+    if (this.towerShots.length > 40) this.towerShots.splice(0, this.towerShots.length - 40);
+    this.armies = this.armies.filter((a) => a.units.length > 0);
   }
 
   engage() {

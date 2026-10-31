@@ -21,6 +21,8 @@ export const JOIN_DIST = 22; // an army this close to a battle joins it
 export const WAVE_INTERVAL = 20; // seconds between waves
 
 export const PLAYER_HP = 10000;
+// Towers shoot at armies sieging them. ATK is read as accuracy.
+export const TOWER_STATS = { acc: 100, dmg: 500, spd: 0.2 };
 export const UNIT_COST = 20;
 export const UPGRADE_COST = 60;
 export const MAX_GAME_SECONDS = 60 * 45;

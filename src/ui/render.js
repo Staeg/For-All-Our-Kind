@@ -109,6 +109,29 @@ export function drawMap(ctx, game, view) {
     }
   }
 
+  // Tower shots: a bolt from the tower top down onto the sieging army.
+  for (const s of game.towerShots) {
+    const age = t - s.t;
+    if (age > 0.5) continue;
+    const col = game.players[s.owner].faction.colors.accent;
+    ctx.globalAlpha = 1 - age * 2;
+    ctx.strokeStyle = col;
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(s.x, s.y - 34);
+    ctx.lineTo(s.x + 4, s.y - 18);
+    ctx.lineTo(s.x - 3, s.y - 10);
+    ctx.lineTo(s.x, s.y);
+    ctx.stroke();
+    if (s.hit) {
+      ctx.fillStyle = '#ffd23a';
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, 8 + age * 20, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+
   // Battles: pulsing ring split into each side's colour, with crossed swords.
   for (const b of game.battles) {
     const owners = [...b.owners()];
