@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>For All Our Kind</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <section id="start" class="screen">
+    <h1>For All Our Kind</h1>
+    <p class="lede">Four otherwise friendly peoples agreed to a simulated war, to learn who would fare best in a real one and what each could learn from the others. Pick who you speak for.</p>
+    <div id="faction-cards"></div>
+    <div class="start-actions">
+      <button id="start-btn" disabled>Choose a faction</button>
+      <button id="watch-btn" class="ghost">Watch four AIs</button>
+    </div>
+    <details class="howto">
+      <summary>How it plays</summary>
+      <ul>
+        <li>Every 20 seconds each base sends a wave down each of its three lanes: one to each neighbour and one through the free-for-all centre.</li>
+        <li>When enemy armies meet, a battle starts. Units phase in on the side they came from, in your formation, and fight it out. Reinforcements join running battles.</li>
+        <li>An army that reaches an undefended tower damages that player directly. Players have 10,000 HP. Last one standing wins.</li>
+        <li>Each kill earns 1 gold per tier. Spend 20 gold to add a unit to a lane's wave permanently, or 60 gold for a unit type's one-time upgrade (all lanes).</li>
+        <li>Formation sliders set where each unit type phases in: back of your quarter of the field, or front.</li>
+        <li>Space pauses. Click a battle on the map to watch it.</li>
+      </ul>
+    </details>
+  </section>
+
+  <section id="game" class="screen hidden">
+    <div id="map-wrap">
+      <canvas id="map"></canvas>
+      <div id="overlay" class="hidden"></div>
+    </div>
+    <aside id="side">
+      <div id="topbar">
+        <div id="players"></div>
+        <div id="controls">
+          <button data-speed="0" title="Pause (space)">❚❚</button>
+          <button data-speed="1" class="on">1×</button>
+          <button data-speed="2">2×</button>
+          <button data-speed="4">4×</button>
+          <span id="clock">0:00</span>
+        </div>
+      </div>
+      <div id="battle-wrap">
+        <canvas id="battle"></canvas>
+        <div id="battle-caption"></div>
+      </div>
+      <div id="shop"></div>
+      <div id="log"></div>
+    </aside>
+  </section>
+
+  <script type="module" src="./src/ui/main.js"></script>
+</body>
+</html>

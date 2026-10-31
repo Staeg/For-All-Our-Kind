@@ -1,0 +1,14 @@
+{
+  "name": "for-all-our-kind",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Four-faction lane battle prototype inspired by Survival Chaos.",
+  "scripts": {
+    "start": "node tools/serve.js",
+    "playtest": "node tools/playtest.js all",
+    "playtest:lanes": "node tools/playtest.js lanes",
+    "playtest:games": "node tools/playtest.js games",
+    "playtest:upgrades": "node tools/playtest.js upgrades"
+  }
+}
