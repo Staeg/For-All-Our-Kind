@@ -3,13 +3,14 @@
 // tight loop. Commands (buy, upgrade, formation) are applied between ticks.
 import {
   DT, MARCH_SPEED, TOWER_OFFSET, ENGAGE_DIST, JOIN_DIST, WAVE_INTERVAL, PLAYER_HP,
-  UNIT_COST, UPGRADE_COST, MAX_GAME_SECONDS, FACTION_BY_ID, TOWER_STATS, startingWave,
+  UNIT_COST, UPGRADE_COST, MAX_GAME_SECONDS, FACTION_BY_ID, FIRE_SPEED, startingWave,
   defaultFormation, effectiveStats,
 } from './data.js';
 import { Rng } from './rng.js';
-import { Battle, hitChance, hitDamage } from './battle.js';
+import { Battle } from './battle.js';
+import { ensureSlots } from './formation.js';
 import {
-  LANES, laneNodes, continueNodes, routeFromNodes, makeRoute, posAt, segmentAt,
+  NODE_POS, LANES, laneNodes, continueNodes, routeFromNodes, makeRoute, posAt, segmentAt,
 } from './map.js';
 
 export class Game {
@@ -48,8 +49,7 @@ export class Game {
     this.winner = null;
     this.events = [];
     this.firstBattleWinner = null;
-    this.towers = new Map(); // "player:x,y" -> { cooldown }
-    this.towerShots = []; // recent shots, for rendering
+    this.fires = []; // fire waves rolling out from eliminated players' corners
   }
 
   alive() {
@@ -114,17 +114,16 @@ export class Game {
         a.s += MARCH_SPEED * DT;
         if (a.s >= a.route.length - TOWER_OFFSET) {
           a.s = a.route.length - TOWER_OFFSET;
-          a.state = 'siege';
+          a.state = 'siege'; // at the enemy tower: a tower battle starts in engage()
         }
       }
-      if (a.state === 'siege') this.siege(a);
     }
-    this.towerFire();
 
     for (const b of this.battles) b.step();
     this.endBattles();
     this.engage();
     this.checkEliminations();
+    this.burn();
     if (!this.over && this.time >= this.maxSeconds) this.finish();
   }
 
@@ -138,11 +137,12 @@ export class Game {
         const nodes = laneNodes(p.index, lane, alive);
         if (!nodes) continue;
         const units = [];
+        const slots = ensureSlots(p, lane);
         for (const u of p.faction.units) {
           const n = p.roster[lane][u.id] || 0;
           for (let k = 0; k < n; k++) {
             const stats = effectiveStats(u, p.upgrades.has(u.id));
-            units.push({ def: u, owner: p.index, stats, hp: stats.hp });
+            units.push({ def: u, owner: p.index, stats, hp: stats.hp, slot: { ...slots[u.id][k] } });
           }
         }
         if (!units.length) continue;
@@ -163,50 +163,6 @@ export class Game {
 
   armyPos(a) {
     return posAt(a.route, a.s);
-  }
-
-  siege(a) {
-    const target = a.route.nodes[a.route.nodes.length - 1];
-    const p = this.players[target];
-    if (!p.alive) return;
-    let dmg = 0;
-    // Towers have no ARM or EVA; use expected damage so sieges need no rolls.
-    for (const u of a.units) dmg += u.stats.spd * hitChance(u.stats.acc, 0) * u.stats.dmg * DT;
-    p.hp -= dmg;
-    this.players[a.owner].towerDamage += dmg;
-  }
-
-  // Each lane's tower shoots one random unit among the armies sieging it.
-  towerFire() {
-    const groups = new Map();
-    for (const a of this.armies) {
-      if (a.state !== 'siege' || !a.units.length) continue;
-      const target = a.route.nodes[a.route.nodes.length - 1];
-      const p = this.armyPos(a);
-      const key = `${target}:${Math.round(p.x)},${Math.round(p.y)}`;
-      if (!groups.has(key)) groups.set(key, { target, x: p.x, y: p.y, armies: [] });
-      groups.get(key).armies.push(a);
-    }
-    for (const t of this.towers.values()) t.cooldown -= DT;
-    for (const [key, g] of groups) {
-      if (!this.players[g.target].alive) continue;
-      const tower = this.towers.get(key) || { cooldown: 0 };
-      this.towers.set(key, tower);
-      if (tower.cooldown > 0) continue;
-      tower.cooldown = 1 / TOWER_STATS.spd;
-      const units = g.armies.flatMap((a) => a.units);
-      const victim = this.rng.pick(units);
-      const hit = this.rng.next() < hitChance(TOWER_STATS.acc, victim.stats.eva);
-      this.towerShots.push({ t: this.time, x: g.x, y: g.y, owner: g.target, hit });
-      if (!hit) continue;
-      victim.hp -= hitDamage(TOWER_STATS.dmg, victim.stats.arm);
-      if (victim.hp <= 0) {
-        for (const a of g.armies) a.units = a.units.filter((u) => u !== victim);
-        this.onKill(g.target, victim);
-      }
-    }
-    if (this.towerShots.length > 40) this.towerShots.splice(0, this.towerShots.length - 40);
-    this.armies = this.armies.filter((a) => a.units.length > 0);
   }
 
   engage() {
@@ -236,9 +192,7 @@ export class Game {
         const pa = pos.get(a);
         const pc = pos.get(c);
         if (Math.hypot(pa.x - pc.x, pa.y - pc.y) > ENGAGE_DIST) continue;
-        const b = new Battle(this.nextId++, (pa.x + pc.x) / 2, (pa.y + pc.y) / 2, this.rng);
-        b.onKill = (owner, victim) => this.onKill(owner, victim);
-        this.battles.push(b);
+        const b = this.newBattle((pa.x + pc.x) / 2, (pa.y + pc.y) / 2);
         this.joinBattle(a, b);
         this.joinBattle(c, b);
         // Anyone else already standing there piles in too.
@@ -250,6 +204,31 @@ export class Game {
         break;
       }
     }
+
+    // Armies standing at an enemy tower with nobody to fight attack the tower itself.
+    for (const a of free) {
+      if (a.state !== 'siege') continue;
+      const target = a.route.nodes[a.route.nodes.length - 1];
+      const p = pos.get(a);
+      let b = this.battles.find((x) => x.tower && x.tower.owner === target
+        && Math.hypot(p.x - x.x, p.y - x.y) <= JOIN_DIST);
+      if (!b) {
+        b = this.newBattle(p.x, p.y);
+        b.setTower(target, { x: p.dx, y: p.dy });
+      }
+      this.joinBattle(a, b);
+    }
+  }
+
+  newBattle(x, y) {
+    const b = new Battle(this.nextId++, x, y, this.rng);
+    b.onKill = (owner, victim) => this.onKill(owner, victim);
+    b.onTowerDamage = (attacker, owner, amount) => {
+      this.players[owner].hp -= amount;
+      this.players[attacker].towerDamage += amount;
+    };
+    this.battles.push(b);
+    return b;
   }
 
   joinBattle(a, b) {
@@ -278,7 +257,7 @@ export class Game {
       for (const a of b.armies.values()) {
         a.units = survivors.get(a.id) || [];
         a.battle = null;
-        a.state = a.s >= a.route.length - TOWER_OFFSET - 1e-6 ? 'siege' : 'march';
+        a.state = 'march';
       }
       this.log('battle', `Battle ended`, { battle: b.id, winner });
     }
@@ -295,7 +274,17 @@ export class Game {
         p.eliminatedAt = this.time;
         changed = true;
         this.log('elim', `${p.faction.name} have been eliminated`, { player: p.index });
-        for (const b of this.battles) b.units = b.units.filter((u) => u.owner !== p.index);
+        for (const b of this.battles) {
+          b.units = b.units.filter((u) => u.owner !== p.index);
+          if (b.tower && b.tower.owner === p.index) b.tower = null;
+        }
+        // A wave of fire rolls from their corner down both perimeter lanes.
+        for (const n of [(p.index + 1) % 4, (p.index + 3) % 4]) {
+          const a = NODE_POS[p.index];
+          const b = NODE_POS[n];
+          const len = Math.hypot(b.x - a.x, b.y - a.y);
+          this.fires.push({ ax: a.x, ay: a.y, ux: (b.x - a.x) / len, uy: (b.y - a.y) / len, len: len - 25, d: 0, start: this.time });
+        }
         this.armies = this.armies.filter((a) => a.owner !== p.index);
       }
     }
@@ -307,6 +296,28 @@ export class Game {
     }
     // Battles that lost their last opponent end next tick; reroute everyone else.
     for (const a of this.armies) this.reroute(a, alive);
+  }
+
+  // Advance fire waves and kill every unit they reach, in or out of battle.
+  burn() {
+    if (!this.fires.length) return;
+    const reached = (x, y, f) => {
+      const t = (x - f.ax) * f.ux + (y - f.ay) * f.uy;
+      const off = Math.abs((x - f.ax) * f.uy - (y - f.ay) * f.ux);
+      return off < 26 && t >= -30 && t <= Math.min(f.d, f.len);
+    };
+    for (const f of this.fires) {
+      if (f.d >= f.len) continue;
+      f.d += FIRE_SPEED * DT;
+      for (const b of this.battles) if (reached(b.x, b.y, f)) b.units = [];
+      for (const a of this.armies) {
+        if (a.state === 'battle') continue;
+        const p = this.armyPos(a);
+        if (reached(p.x, p.y, f)) a.units = [];
+      }
+    }
+    this.armies = this.armies.filter((a) => a.units.length > 0 || a.state === 'battle');
+    this.fires = this.fires.filter((f) => this.time - f.start < f.len / FIRE_SPEED + 3);
   }
 
   reroute(a, alive) {

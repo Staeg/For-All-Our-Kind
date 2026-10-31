@@ -18,8 +18,9 @@ then visit http://localhost:8080. There is no build step and no dependencies; th
 - **Battles.** When enemy armies meet, a 2D battle starts on a round arena. Each army phases in on the side it arrived from, in its owner's formation, rotated to match its direction of travel (so a battle on a bend is west-vs-south). Reinforcements join running battles. Units are circles with collision; the sim is a deterministic 30 Hz tick with a seeded RNG.
 - **Targeting.** Closest enemy on arrival; switch if another enemy comes into range first; when the target dies, a random enemy in range, else the closest.
 - **Stats.** HP, ACC, DMG, ARM, EVA, SPD, RNG. Hit chance `(50 + ACC) / (100 + 2·EVA)`, capped at 1. Damage `DMG − ARM` (minimum 1). SPD is attacks per second and movement (SPD 1 crosses from the arena edge to the centre in 10 s). RNG is in unit diameters; 0 means melee.
-- **Towers.** An army that reaches the end of its lane unopposed damages that player directly (10,000 HP). Each tower shoots one sieging unit every 5 s (SPD 0.2, ACC 100, DMG 500).
-- **Eliminations.** When a player falls, lanes route through their corner, so the two neighbours' lanes face each other around the bend. Mid lanes aimed at the dead player retarget the clockwise-closest survivor.
+- **Formations.** Exact and per lane. Click one of your towers (or a lane button in the side panel) to open that lane's formation, drawn in the direction the wave will be travelling at the lane's midpoint. Drag units anywhere in your quarter of the field; drop one on another to swap them. Newly bought units take the nearest free spot.
+- **Towers.** An army that reaches an enemy tower with nobody left to fight starts a battle against the tower itself, which stands in the arena on the defender's side. Units can only hit the tower while none of the defender's units are in that fight, and every hit damages the player directly (10,000 HP). The tower shoots back at anything within 12 diameters (SPD 0.2, ACC 100, DMG 500). Defending waves join the fight as they leave the base.
+- **Eliminations.** When a player falls, a wave of fire rolls from their corner down both perimeter lanes and kills every unit it reaches. After that, lanes route through their corner, so the two neighbours' lanes face each other around the bend. Mid lanes aimed at the dead player retarget the clockwise-closest survivor.
 - **Economy.** 1 gold per tier per kill. 20 g adds a unit permanently to one lane's wave; 60 g buys a unit type's one-time upgrade, which applies in all lanes immediately.
 
 ## Code layout
@@ -40,6 +41,6 @@ Targets: no 1v1 lane pairing above 60% for one side; no faction winning more tha
 
 Results at the time of the first prototype (2026-10-31):
 
-- Lanes, 200 seeds per pairing: every pairing between 45% and 55%.
-- AI games, 200 games (with tower fire): Librarians 40%, Visitors 26%, Compatriots 22%, Apex 13%.
+- Lanes, 200 seeds per pairing (exact formations, tower fights): every pairing between 41% and 59%.
+- AI games, 200 games: Librarians 38%, Apex 30%, Compatriots 21%, Visitors 12%. Average game 10.6 min.
 - Upgrades: crossover between about 7 and 11 units for every type (most at 8 to 10), negative at 2 to 6 units.

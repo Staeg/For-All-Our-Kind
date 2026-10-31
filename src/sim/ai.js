@@ -1,6 +1,6 @@
 // Rudimentary AI: spend gold as it comes in, reinforce the lane under the most
 // pressure, and buy a unit type's upgrade once it has enough of that type.
-import { UNIT_COST, UPGRADE_COST } from './data.js';
+import { UNIT_COST, UPGRADE_COST, TOWER_OFFSET } from './data.js';
 import { LANES, CENTRE } from './map.js';
 import { Rng } from './rng.js';
 
@@ -34,7 +34,7 @@ export class SimpleAI {
       const lane = this.laneFacing(a);
       if (!lane) continue;
       const closeness = a.s / a.route.length; // 1 = at our door
-      pressure[lane] += a.units.length * (0.5 + closeness * 2) * (a.state === 'siege' ? 3 : 1);
+      pressure[lane] += a.units.length * (0.5 + closeness * 2) * (a.s >= a.route.length - TOWER_OFFSET - 1 ? 3 : 1);
     }
     return pressure;
   }

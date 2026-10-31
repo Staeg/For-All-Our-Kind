@@ -6,8 +6,12 @@ import {
 import { Game } from '../sim/game.js';
 import { SimpleAI } from '../sim/ai.js';
 import { LANES, laneNodes } from '../sim/map.js';
+import { nearestFree, clampSlot, ensureSlots } from '../sim/formation.js';
 import { spriteDataUrl, STAT_ICON, STAT_LABEL } from './art.js';
-import { drawMap, drawBattle, battleAt } from './render.js';
+import {
+  drawMap, drawBattle, battleAt, towerSpots, drawFormation, formationFrame, laneDirection,
+  slotToArena, arenaToSlot, formationUnits,
+} from './render.js';
 
 const $ = (id) => document.getElementById(id);
 const HUMAN_SEAT = 3; // bottom-left
@@ -19,7 +23,7 @@ let human = null; // seat index, or null when watching
 let speed = 1;
 let acc = 0;
 let last = 0;
-const view = { selectedBattle: null, pinned: false };
+const view = { selectedBattle: null, pinned: false, editLane: null, drag: null };
 let logSeen = 0;
 let shopDirty = true;
 
@@ -94,6 +98,8 @@ function start(factionId) {
   ais = seats.map((_, i) => (i === human ? null : new SimpleAI(game, i, seed + i * 101)));
   view.selectedBattle = null;
   view.pinned = false;
+  view.editLane = null;
+  view.drag = null;
   logSeen = 0;
   shopDirty = true;
   $('log').innerHTML = '';
@@ -141,7 +147,10 @@ function renderShop() {
   }
   const p = game.players[human];
   const lanes = LANES.map((l) => ({ l, label: laneLabel(l) }));
-  let html = `<div class="gold-line">Gold: <b>${p.gold}</b> · unit ${UNIT_COST}g · upgrade ${UPGRADE_COST}g</div>`;
+  let html = `<div class="gold-line">Gold: <b>${p.gold}</b> · unit ${UNIT_COST}g · upgrade ${UPGRADE_COST}g</div>`
+    + '<div class="ucard"><div class="row">Formation (or click your towers): '
+    + lanes.map(({ l, label }) => (label ? `<button data-form="${l}" class="${view.editLane === l ? 'on' : ''}">${label}</button>` : '')).join('')
+    + '</div></div>';
   for (const u of p.faction.units) {
     const up = p.upgrades.has(u.id);
     html += `<div class="ucard"><img src="${spriteDataUrl(p.factionId, u.id)}" alt="">`
@@ -155,8 +164,7 @@ function renderShop() {
       + (up
         ? `<span class="upg">✓ ${u.upgrade.name}: ${modsText(u.upgrade.mods)}</span>`
         : `<button data-up="${u.id}" ${p.gold < UPGRADE_COST || !p.alive ? 'disabled' : ''}>Upgrade: ${u.upgrade.name}</button> <span class="upg">${modsText(u.upgrade.mods)}</span>`)
-      + '</div><div class="row">Formation: back'
-      + `<input type="range" min="0" max="1" step="0.05" value="${p.formation[u.id]}" data-form="${u.id}">front</div></div>`;
+      + '</div></div>';
   }
   shop.innerHTML = html;
 }
@@ -166,10 +174,79 @@ $('shop').addEventListener('click', (e) => {
   if (!b || !game) return;
   if (b.dataset.buy) game.buyUnit(human, b.dataset.buy, b.dataset.lane);
   if (b.dataset.up) game.buyUpgrade(human, b.dataset.up);
+  if (b.dataset.form) openFormation(b.dataset.form);
   shopDirty = true;
 });
-$('shop').addEventListener('input', (e) => {
-  if (e.target.dataset.form && game) game.setFormation(human, e.target.dataset.form, Number(e.target.value));
+
+// ---- formation editor ------------------------------------------------------------
+
+function openFormation(lane) {
+  view.editLane = view.editLane === lane ? null : lane;
+  view.drag = null;
+  shopDirty = true;
+}
+
+function canvasPoint(e) {
+  const cv = $('battle');
+  const r = cv.getBoundingClientRect();
+  return { x: ((e.clientX - r.left) / r.width) * cv.width, y: ((e.clientY - r.top) / r.height) * cv.height };
+}
+
+function editorContext() {
+  if (!game || view.editLane === null || human === null) return null;
+  const dir = laneDirection(game, human, view.editLane);
+  if (!dir) return null;
+  const p = game.players[human];
+  const slots = ensureSlots(p, view.editLane);
+  const fr = formationFrame($('battle').getContext('2d'), dir);
+  return { dir, p, slots, fr };
+}
+
+$('battle').addEventListener('pointerdown', (e) => {
+  const ec = editorContext();
+  if (!ec) return;
+  const pt = canvasPoint(e);
+  const q = ec.fr.toArena(pt.x, pt.y);
+  let best = null;
+  let bestD = 0.7;
+  for (const { u, i, slot } of formationUnits(ec.p, view.editLane, ec.slots)) {
+    const a = slotToArena(slot, ec.dir);
+    const d = Math.hypot(a.x - q.x, a.y - q.y);
+    if (d < bestD) {
+      bestD = d;
+      best = { type: u.id, i };
+    }
+  }
+  if (!best) return;
+  view.drag = { ...best, pos: q };
+  $('battle').setPointerCapture(e.pointerId);
+});
+
+$('battle').addEventListener('pointermove', (e) => {
+  const ec = editorContext();
+  if (!ec || !view.drag) return;
+  const pt = canvasPoint(e);
+  const slot = clampSlot(arenaToSlot(ec.fr.toArena(pt.x, pt.y), ec.dir));
+  view.drag.pos = slotToArena(slot, ec.dir);
+});
+
+$('battle').addEventListener('pointerup', () => {
+  const ec = editorContext();
+  const drag = view.drag;
+  view.drag = null;
+  if (!ec || !drag) return;
+  const mine = ec.slots[drag.type][drag.i];
+  const want = clampSlot(arenaToSlot(drag.pos, ec.dir));
+  const all = formationUnits(ec.p, view.editLane, ec.slots).map((x) => x.slot);
+  // Dropping onto another unit swaps the two; otherwise take the nearest free spot.
+  const other = all.find((s) => s !== mine && Math.hypot(s.lat - want.lat, s.depth - want.depth) < 0.6);
+  if (other) {
+    const tmp = { lat: other.lat, depth: other.depth };
+    Object.assign(other, { lat: mine.lat, depth: mine.depth });
+    Object.assign(mine, tmp);
+  } else {
+    Object.assign(mine, nearestFree(want, all, mine));
+  }
 });
 
 let shopKey = '';
@@ -227,10 +304,21 @@ $('map').addEventListener('click', (e) => {
   const r = e.target.getBoundingClientRect();
   const mx = ((e.clientX - r.left) / r.width) * MAP_SIZE;
   const my = ((e.clientY - r.top) / r.height) * MAP_SIZE;
+  if (human !== null && game.players[human].alive) {
+    const spots = towerSpots(human);
+    for (let k = 0; k < LANES.length; k++) {
+      if (Math.hypot(spots[k].x - mx, spots[k].y - my) < 24 && laneDirection(game, human, LANES[k])) {
+        openFormation(LANES[k]);
+        return;
+      }
+    }
+  }
   const b = battleAt(game, mx, my);
   if (b) {
     view.selectedBattle = b.id;
     view.pinned = true;
+    view.editLane = null;
+    shopDirty = true;
   }
 });
 
@@ -277,9 +365,14 @@ function frame(now) {
   if (budget <= 0) acc = 0;
 
   drawMap($('map').getContext('2d'), game, view);
+  if (view.editLane !== null && (human === null || !laneDirection(game, human, view.editLane))) view.editLane = null;
   const b = pickBattle();
-  drawBattle($('battle').getContext('2d'), game, b);
-  $('battle-caption').textContent = b
+  if (view.editLane !== null) {
+    drawFormation($('battle').getContext('2d'), game, human, view.editLane, view.drag);
+    $('battle-caption').textContent = `Formation: ${laneLabel(view.editLane)} · drag units to place them, `
+      + 'drop on another unit to swap · click the lane button or a battle to return';
+  } else drawBattle($('battle').getContext('2d'), game, b);
+  if (view.editLane === null) $('battle-caption').textContent = b
     ? `Battle: ${[...b.owners()].map((o) => game.players[o].faction.name.replace('The ', '')).join(' vs ')} · ${b.units.length} units${view.pinned ? ' (pinned)' : ''}`
     : '';
 

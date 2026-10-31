@@ -23,6 +23,7 @@ export const WAVE_INTERVAL = 20; // seconds between waves
 export const PLAYER_HP = 10000;
 // Towers shoot at armies sieging them. ATK is read as accuracy.
 export const TOWER_STATS = { acc: 100, dmg: 500, spd: 0.2 };
+export const FIRE_SPEED = 220; // map units per second for the fire wave on elimination
 export const UNIT_COST = 20;
 export const UPGRADE_COST = 60;
 export const MAX_GAME_SECONDS = 60 * 45;
@@ -64,10 +65,10 @@ export const FACTIONS = [
       unit('warden', 'Dust Warden', 'melee', {}, {
         name: 'Rebound Linen', desc: 'Fresh wrappings.', mods: { hp: 20 },
       }, 'Bog-standard shambling guard.'),
-      unit('slinger', 'Scroll Slinger', 'ranged', { acc: 30, dmg: 8, rng: 4 }, {
+      unit('slinger', 'Scroll Slinger', 'ranged', { hp: 47, acc: 30, dmg: 8, rng: 4 }, {
         name: 'Errata', desc: 'Corrected scrolls cut deeper.', mods: { dmg: 1.1 },
       }, 'Accurate but feeble paper cuts from afar.'),
-      unit('sage', 'Hourglass Sage', 'ranged', { spd: 0.6, dmg: 20, rng: 4.5 }, {
+      unit('sage', 'Hourglass Sage', 'ranged', { hp: 56, spd: 0.6, dmg: 19, rng: 4.5 }, {
         name: 'Borrowed Time', desc: 'The sand runs faster.', mods: { spd: 0.07 },
       }, 'Slow, heavy, long-range blasts of time-sand.'),
     ],
@@ -84,7 +85,7 @@ export const FACTIONS = [
       unit('monolith', 'Stone Visitor', 'melee', { hp: 116, arm: 2, dmg: 9, spd: 0.7 }, {
         name: 'Bedrock', desc: 'Denser stone.', mods: { arm: 1 },
       }, 'Slow armoured boulder with a weak punch.'),
-      unit('sprite', 'Gale Sprite', 'ranged', { hp: 40, eva: 10, dmg: 8, spd: 1.4, rng: 2.5 }, {
+      unit('sprite', 'Gale Sprite', 'ranged', { hp: 39, eva: 10, dmg: 8, spd: 1.4, rng: 2.5 }, {
         name: 'Tailwind', desc: 'Even harder to pin down.', mods: { eva: 21 },
       }, 'Fast, evasive, fragile, short-ranged gusts.'),
     ],
@@ -98,10 +99,10 @@ export const FACTIONS = [
       unit('comrade', 'Spore Comrade', 'melee', {}, {
         name: 'Shared Burden', desc: 'The network mends its members mid-fight.', mods: { regen: 1.5 },
       }, 'Bog-standard mushroom worker with a hammer.'),
-      unit('bulwark', 'Shelf Bulwark', 'melee', { hp: 135, dmg: 8, arm: 2, spd: 0.8 }, {
+      unit('bulwark', 'Shelf Bulwark', 'melee', { hp: 120, dmg: 8, arm: 2, spd: 0.8 }, {
         name: 'Collective Wall', desc: 'Thicker shelves.', mods: { hp: 25 },
       }, 'Armoured bracket-fungus wall that hits softly.'),
-      unit('lobber', 'Puffball Lobber', 'ranged', { hp: 90, dmg: 9, rng: 2.5 }, {
+      unit('lobber', 'Puffball Lobber', 'ranged', { hp: 95, dmg: 9, rng: 3 }, {
         name: 'Spore Cloud', desc: 'Puffs spread to everyone touching the target.', mods: { splash: 0.24 },
       }, 'Hardy, short-ranged spore puffer.'),
     ],
@@ -113,12 +114,12 @@ export const FACTIONS = [
     colors: { main: '#b9c6d3', dark: '#3d4a5a', accent: '#ff8a2a', banner: '#8fa3b8' },
     units: [
       unit('servitor', 'Servitor', 'melee', {}, {
-        name: 'Iterated Plating', desc: 'Each revision is tougher.', mods: { arm: 1.15 },
+        name: 'Iterated Plating', desc: 'Each revision is tougher.', mods: { arm: 1.3 },
       }, 'Bog-standard boxy melee drone.'),
-      unit('striker', 'Striker Frame', 'melee', { hp: 75, dmg: 9, spd: 1.5 }, {
+      unit('striker', 'Striker Frame', 'melee', { hp: 70, dmg: 9, spd: 1.5 }, {
         name: 'Overclock', desc: 'Faster servos.', mods: { spd: 0.38 },
       }, 'Very fast, fragile blade frame.'),
-      unit('lancer', 'Optic Lancer', 'ranged', { hp: 52, acc: 20, dmg: 14, spd: 0.7, rng: 4 }, {
+      unit('lancer', 'Optic Lancer', 'ranged', { hp: 46, acc: 20, dmg: 14, spd: 0.7, rng: 4.5 }, {
         name: 'Targeting Lattice', desc: 'Sharper optics.', mods: { acc: 11 },
       }, 'Slow-firing precise long-range laser.'),
     ],

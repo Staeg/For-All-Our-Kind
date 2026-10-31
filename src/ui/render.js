@@ -1,6 +1,10 @@
 // Canvas drawing for the strategic map and the battle viewer. Reads game state only.
-import { MAP_SIZE, TOWER_OFFSET, ARENA_RADIUS, SPAWN_DEPTH } from '../sim/data.js';
-import { NODE_POS, CENTRE, LANES, laneNodes, posAt } from '../sim/map.js';
+import {
+  MAP_SIZE, TOWER_OFFSET, ARENA_RADIUS, SPAWN_DEPTH, SPAWN_WIDTH, PLAYER_HP, FIRE_SPEED,
+} from '../sim/data.js';
+import { NODE_POS, CENTRE, LANES, laneNodes, posAt, routeFromNodes } from '../sim/map.js';
+import { TOWER_RANGE } from '../sim/battle.js';
+import { ensureSlots } from '../sim/formation.js';
 import { drawUnit, drawBase, drawTower } from './art.js';
 
 const ROAD = '#c9b48a';
@@ -60,7 +64,7 @@ function bakeTerrain(px) {
 }
 
 // Where each player's three towers stand, regardless of who is still alive.
-function towerSpots(pi) {
+export function towerSpots(pi) {
   const all = [true, true, true, true];
   return LANES.map((lane) => {
     const nodes = laneNodes(pi, lane, all);
@@ -104,29 +108,20 @@ export function drawMap(ctx, game, view) {
       const y = pos.y - pos.dy * back + pos.dx * side + bob;
       drawUnit(ctx, fid, shown[i].def.id, x, y, 20, faceLeft);
     }
-    if (a.units.length > 6 || a.state === 'siege') {
-      label(ctx, pos.x, pos.y - 18, a.state === 'siege' ? `${a.units.length} sieging` : `${a.units.length}`, game.players[a.owner].faction.colors.main);
-    }
+    if (a.units.length > 6) label(ctx, pos.x, pos.y - 18, `${a.units.length}`, game.players[a.owner].faction.colors.main);
   }
 
-  // Tower shots: a bolt from the tower top down onto the sieging army.
-  for (const s of game.towerShots) {
-    const age = t - s.t;
-    if (age > 0.5) continue;
-    const col = game.players[s.owner].faction.colors.accent;
-    ctx.globalAlpha = 1 - age * 2;
-    ctx.strokeStyle = col;
-    ctx.lineWidth = 4;
-    ctx.beginPath();
-    ctx.moveTo(s.x, s.y - 34);
-    ctx.lineTo(s.x + 4, s.y - 18);
-    ctx.lineTo(s.x - 3, s.y - 10);
-    ctx.lineTo(s.x, s.y);
-    ctx.stroke();
-    if (s.hit) {
-      ctx.fillStyle = '#ffd23a';
+  // Fire waves from eliminated players' corners.
+  for (const f of game.fires) {
+    const reach = Math.min(f.d, f.len);
+    const fade = Math.max(0, Math.min(1, 1 - (t - f.start - f.len / FIRE_SPEED) / 3));
+    for (let d = 0; d < reach; d += 14) {
+      const flick = Math.sin(t * 20 + d * 0.7) * 0.5 + 0.5;
+      const front = reach - d < 60 ? 1.4 : 1;
+      ctx.globalAlpha = fade * (0.55 + flick * 0.35);
+      ctx.fillStyle = flick > 0.5 ? '#ff7a1a' : '#ffcc33';
       ctx.beginPath();
-      ctx.arc(s.x, s.y, 8 + age * 20, 0, Math.PI * 2);
+      ctx.arc(f.ax + f.ux * d + f.uy * (flick - 0.5) * 10, f.ay + f.uy * d - f.ux * (flick - 0.5) * 10, (11 + flick * 7) * front, 0, Math.PI * 2);
       ctx.fill();
     }
     ctx.globalAlpha = 1;
@@ -233,7 +228,8 @@ export function drawBattle(ctx, game, battle) {
   let x1 = -Infinity;
   let y0 = Infinity;
   let y1 = -Infinity;
-  for (const u of battle.units) {
+  const pts = battle.tower ? [...battle.units, battle.tower] : battle.units;
+  for (const u of pts) {
     x0 = Math.min(x0, u.x);
     x1 = Math.max(x1, u.x);
     y0 = Math.min(y0, u.y);
@@ -268,6 +264,35 @@ export function drawBattle(ctx, game, battle) {
   ctx.beginPath();
   ctx.arc(0, 0, ARENA_RADIUS - SPAWN_DEPTH, 0, Math.PI * 2);
   ctx.stroke();
+
+  const tw = battle.tower;
+  if (tw) {
+    const owner = game.players[tw.owner];
+    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+    ctx.lineWidth = 0.1;
+    ctx.beginPath();
+    ctx.arc(tw.x, tw.y, tw.r + TOWER_RANGE, 0, Math.PI * 2);
+    ctx.stroke();
+    drawTower(ctx, owner.factionId, tw.x, tw.y - 0.6, tw.r * 2.6, false);
+    const frac = Math.max(0, owner.hp / PLAYER_HP);
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillRect(tw.x - 1.6, tw.y - 3, 3.2, 0.3);
+    ctx.fillStyle = '#d94141';
+    ctx.fillRect(tw.x - 1.6, tw.y - 3, 3.2 * frac, 0.3);
+    if (tw.atk && battle.time - tw.atk.time < 0.35) {
+      const age = battle.time - tw.atk.time;
+      ctx.strokeStyle = owner.faction.colors.accent;
+      ctx.globalAlpha = 1 - age / 0.35;
+      ctx.lineWidth = 0.25;
+      ctx.beginPath();
+      ctx.moveTo(tw.x, tw.y - 2.2);
+      ctx.lineTo((tw.x + tw.atk.tx) / 2 + 0.6, (tw.y - 2.2 + tw.atk.ty) / 2 - 0.6);
+      ctx.lineTo(tw.atk.tx, tw.atk.ty);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+      if (tw.atk.hit) burst(ctx, tw.atk.tx, tw.atk.ty, age);
+    }
+  }
 
   const units = [...battle.units].sort((a, b) => a.y - b.y);
   for (const u of units) {
@@ -328,4 +353,127 @@ function burst(ctx, x, y, age) {
   ctx.beginPath();
   ctx.arc(x, y, 0.3, 0, Math.PI * 2);
   ctx.fill();
+}
+
+// ---- formation editor ---------------------------------------------------------
+
+// The direction a lane's army is travelling at the lane's median fight.
+export function laneDirection(game, pi, lane) {
+  const nodes = laneNodes(pi, lane, game.alive());
+  if (!nodes) return null;
+  const route = routeFromNodes(nodes);
+  const p = posAt(route, route.length / 2);
+  return { x: p.dx, y: p.dy };
+}
+
+// Screen <-> arena transform for the editor. The view keeps map orientation, so
+// the formation appears rotated exactly as it will arrive at the lane's centre.
+export function formationFrame(ctx, dir) {
+  const W = ctx.canvas.width;
+  const H = ctx.canvas.height;
+  const k = Math.min(H / 19, W / 22);
+  const off = ARENA_RADIUS - SPAWN_DEPTH / 2 - 1.2;
+  const c = { x: -dir.x * off, y: -dir.y * off };
+  return {
+    k,
+    c,
+    toArena: (sx, sy) => ({ x: c.x + (sx - W / 2) / k, y: c.y + (sy - H / 2) / k }),
+  };
+}
+
+export function slotToArena(slot, dir) {
+  const from = ARENA_RADIUS - slot.depth;
+  return { x: -dir.x * from - dir.y * slot.lat, y: -dir.y * from + dir.x * slot.lat };
+}
+
+export function arenaToSlot(q, dir) {
+  return { lat: -q.x * dir.y + q.y * dir.x, depth: ARENA_RADIUS + q.x * dir.x + q.y * dir.y };
+}
+
+export function drawFormation(ctx, game, pi, lane, drag) {
+  const W = ctx.canvas.width;
+  const H = ctx.canvas.height;
+  const dir = laneDirection(game, pi, lane);
+  ctx.fillStyle = '#3f4a33';
+  ctx.fillRect(0, 0, W, H);
+  if (!dir) return;
+  const p = game.players[pi];
+  const slots = ensureSlots(p, lane);
+  const fr = formationFrame(ctx, dir);
+  ctx.save();
+  ctx.translate(W / 2, H / 2);
+  ctx.scale(fr.k, fr.k);
+  ctx.translate(-fr.c.x, -fr.c.y);
+
+  ctx.fillStyle = '#8c7c57';
+  ctx.beginPath();
+  ctx.arc(0, 0, ARENA_RADIUS + 1.5, 0, Math.PI * 2);
+  ctx.fill();
+
+  // The player's quarter of the field, rotated to the lane's direction.
+  const corners = [[-SPAWN_WIDTH / 2, 0], [SPAWN_WIDTH / 2, 0], [SPAWN_WIDTH / 2, SPAWN_DEPTH], [-SPAWN_WIDTH / 2, SPAWN_DEPTH]]
+    .map(([lat, depth]) => slotToArena({ lat, depth }, dir));
+  ctx.fillStyle = 'rgba(255,255,255,0.08)';
+  ctx.strokeStyle = p.faction.colors.main;
+  ctx.lineWidth = 0.12;
+  ctx.beginPath();
+  corners.forEach((q, i) => (i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)));
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  ctx.setLineDash([0.3, 0.3]);
+  ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+  for (let d = 2; d < SPAWN_DEPTH; d += 2) {
+    const a = slotToArena({ lat: -SPAWN_WIDTH / 2, depth: d }, dir);
+    const b = slotToArena({ lat: SPAWN_WIDTH / 2, depth: d }, dir);
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.lineTo(b.x, b.y);
+    ctx.stroke();
+  }
+  ctx.setLineDash([]);
+
+  // Arrow toward the enemy.
+  const tip = slotToArena({ lat: 0, depth: SPAWN_DEPTH + 2.6 }, dir);
+  const tail = slotToArena({ lat: 0, depth: SPAWN_DEPTH + 0.6 }, dir);
+  ctx.strokeStyle = '#ffe2a0';
+  ctx.fillStyle = '#ffe2a0';
+  ctx.lineWidth = 0.25;
+  ctx.beginPath();
+  ctx.moveTo(tail.x, tail.y);
+  ctx.lineTo(tip.x, tip.y);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(tip.x + dir.x * 0.6, tip.y + dir.y * 0.6);
+  ctx.lineTo(tip.x - dir.y * 0.5, tip.y + dir.x * 0.5);
+  ctx.lineTo(tip.x + dir.y * 0.5, tip.y - dir.x * 0.5);
+  ctx.closePath();
+  ctx.fill();
+
+  for (const { u, i, slot } of formationUnits(p, lane, slots)) {
+    const dragging = drag && drag.type === u.id && drag.i === i;
+    const q = dragging ? drag.pos : slotToArena(slot, dir);
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    ctx.beginPath();
+    ctx.ellipse(q.x, q.y + 0.42, 0.45, 0.16, 0, 0, Math.PI * 2);
+    ctx.fill();
+    if (dragging) {
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 0.06;
+      ctx.beginPath();
+      ctx.arc(q.x, q.y, 0.55, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    drawUnit(ctx, p.factionId, u.id, q.x, q.y, 1.35, dir.x < -0.01);
+  }
+  ctx.restore();
+}
+
+export function formationUnits(p, lane, slots) {
+  const out = [];
+  for (const u of p.faction.units) {
+    const n = p.roster[lane][u.id] || 0;
+    for (let i = 0; i < n; i++) out.push({ u, i, slot: slots[u.id][i] });
+  }
+  return out;
 }

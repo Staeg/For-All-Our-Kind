@@ -2,7 +2,7 @@
 // the fight by one fixed tick (DT). No wall-clock time or Math.random is used, so a
 // battle is a pure function of its inputs and the shared seeded Rng.
 import {
-  DT, UNIT_RADIUS, ARENA_RADIUS, SPAWN_DEPTH, SPAWN_WIDTH, SPD_SCALE, MELEE_REACH,
+  DT, TOWER_STATS, UNIT_RADIUS, ARENA_RADIUS, SPAWN_DEPTH, SPAWN_WIDTH, SPD_SCALE, MELEE_REACH,
 } from './data.js';
 
 const SLOT = 1.25; // lateral spacing between units in a formation row
@@ -10,6 +10,9 @@ const ROW = 1.2; // spacing between rows when a type overflows one row
 const PER_ROW = Math.floor(SPAWN_WIDTH / SLOT);
 const BOUND = ARENA_RADIUS + 1;
 const SPLASH_REACH = 0.35;
+export const TOWER_RADIUS = 1.6;
+export const TOWER_RANGE = 12; // in diameters, from the tower's edge
+const TOWER_FORWARD = 8; // tower stands this far from the centre, on the defender's side
 
 export function hitChance(acc, eva) {
   return Math.min(1, (50 + acc) / (100 + 2 * eva));
@@ -29,6 +32,8 @@ export class Battle {
     this.armies = new Map(); // armyId -> army record (route state for when it leaves)
     this.time = 0;
     this.onKill = null; // (killerOwner, victimUnit) => void
+    this.onTowerDamage = null; // (attackerOwner, towerOwner, amount) => void
+    this.tower = null;
     this.nextUnitId = 1;
   }
 
@@ -46,14 +51,22 @@ export class Battle {
       const depth = formation[typeId] ?? 0.5;
       const back = depth < 0.5; // overflow rows grow toward the open side of the zone
       for (let i = 0; i < list.length; i++) {
-        const row = Math.floor(i / PER_ROW);
-        const inRow = Math.min(PER_ROW, list.length - row * PER_ROW);
-        const col = i % PER_ROW;
-        const side = (col - (inRow - 1) / 2) * SLOT + this.rng.range(-0.08, 0.08);
-        let fromCentre = ARENA_RADIUS - depth * SPAWN_DEPTH + (back ? -row * ROW : row * ROW);
-        fromCentre = Math.max(ARENA_RADIUS - SPAWN_DEPTH, Math.min(ARENA_RADIUS, fromCentre));
-        fromCentre += this.rng.range(-0.08, 0.08);
         const u = list[i];
+        let side;
+        let fromCentre;
+        if (u.slot) {
+          // Exact formation slot chosen by the player.
+          side = u.slot.lat;
+          fromCentre = ARENA_RADIUS - u.slot.depth;
+        } else {
+          const row = Math.floor(i / PER_ROW);
+          const inRow = Math.min(PER_ROW, list.length - row * PER_ROW);
+          const col = i % PER_ROW;
+          side = (col - (inRow - 1) / 2) * SLOT + this.rng.range(-0.08, 0.08);
+          fromCentre = ARENA_RADIUS - depth * SPAWN_DEPTH + (back ? -row * ROW : row * ROW);
+          fromCentre = Math.max(ARENA_RADIUS - SPAWN_DEPTH, Math.min(ARENA_RADIUS, fromCentre));
+          fromCentre += this.rng.range(-0.08, 0.08);
+        }
         this.units.push({
           uid: this.nextUnitId++,
           src: u, // the persistent unit record (hp carries over between battles)
@@ -83,8 +96,35 @@ export class Battle {
     return s;
   }
 
+  // The defending tower stands on the far side from attackers arriving along dir.
+  setTower(owner, dir) {
+    this.tower = {
+      isTower: true,
+      owner,
+      x: dir.x * TOWER_FORWARD,
+      y: dir.y * TOWER_FORWARD,
+      r: TOWER_RADIUS,
+      dead: false,
+      stats: { eva: 0, arm: 0 },
+      cooldown: 0,
+      atk: null,
+    };
+  }
+
+  // A battle at a tower keeps going while anyone hostile to the tower is left.
   isOver() {
-    return this.owners().size <= 1;
+    const owners = this.owners();
+    if (owners.size === 0) return true;
+    if (this.tower && [...owners].some((o) => o !== this.tower.owner)) return false;
+    return owners.size <= 1;
+  }
+
+  // The tower can only be hit while none of its owner's units are in the fight.
+  towerFor(u) {
+    const t = this.tower;
+    if (!t || t.owner === u.owner) return null;
+    for (const e of this.units) if (e.owner === t.owner && !e.dead) return null;
+    return t;
   }
 
   inRange(a, b) {
@@ -124,8 +164,9 @@ export class Battle {
     for (const u of units) {
       if (u.dead) continue;
       if (u.stats.regen) u.src.hp = Math.min(u.stats.hp, u.src.hp + u.stats.regen * DT);
+      if (u.target && u.target.isTower && !this.towerFor(u)) u.target = null;
       if (!u.target || u.target.dead) {
-        u.target = this.randomEnemyInRange(u) || this.closestEnemy(u, false);
+        u.target = this.randomEnemyInRange(u) || this.closestEnemy(u, false) || this.towerFor(u);
       } else if (!this.inRange(u, u.target)) {
         const near = this.closestEnemy(u, true);
         if (near) u.target = near;
@@ -150,6 +191,8 @@ export class Battle {
       }
     }
 
+    if (this.tower) this.towerStep();
+
     // 2. Remove the dead before collision so corpses don't block.
     if (units.some((u) => u.dead)) this.units = units.filter((u) => !u.dead);
 
@@ -157,10 +200,28 @@ export class Battle {
     this.resolveCollisions();
   }
 
-  attack(u, t) {
-    u.atk = { tx: t.x, ty: t.y, time: this.time, hit: false };
+  towerStep() {
+    const t = this.tower;
+    t.cooldown -= DT;
+    if (t.cooldown > 0) return;
+    const opts = [];
+    for (const e of this.units) {
+      if (e.dead || e.owner === t.owner) continue;
+      if (Math.hypot(e.x - t.x, e.y - t.y) - e.r - t.r <= TOWER_RANGE) opts.push(e);
+    }
+    if (!opts.length) return;
+    t.cooldown = 1 / TOWER_STATS.spd;
+    this.attack({ ...t, stats: TOWER_STATS, splash: 0 }, this.rng.pick(opts), t);
+  }
+
+  attack(u, t, record = u) {
+    record.atk = { tx: t.x, ty: t.y, time: this.time, hit: false };
     if (this.rng.next() >= hitChance(u.stats.acc, t.stats.eva)) return;
-    u.atk.hit = true;
+    record.atk.hit = true;
+    if (t.isTower) {
+      if (this.onTowerDamage) this.onTowerDamage(u.owner, t.owner, hitDamage(u.stats.dmg, 0));
+      return;
+    }
     this.damage(u, t, hitDamage(u.stats.dmg, t.stats.arm));
     if (u.stats.splash > 0) {
       for (const e of this.units) {
@@ -220,7 +281,18 @@ export class Battle {
         }
       }
     }
+    const t = this.tower;
     for (const u of us) {
+      if (t) {
+        const dx = u.x - t.x;
+        const dy = u.y - t.y;
+        const d = Math.hypot(dx, dy) || 1e-6;
+        const min = u.r + t.r;
+        if (d < min) {
+          u.x = t.x + (dx / d) * min;
+          u.y = t.y + (dy / d) * min;
+        }
+      }
       const d = Math.hypot(u.x, u.y);
       if (d > BOUND) {
         u.x *= BOUND / d;
