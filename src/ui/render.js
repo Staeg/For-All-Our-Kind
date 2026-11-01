@@ -145,15 +145,21 @@ export function drawMap(ctx, game, view) {
 
   // Battles: pulsing ring split into each side's colour, with crossed swords.
   for (const b of game.battles) {
-    const owners = [...b.owners()];
+    // Each side's arc is proportional to how many of its troops are in the fight.
+    const counts = new Map();
+    for (const u of b.units) counts.set(u.owner, (counts.get(u.owner) || 0) + 1);
+    const total = b.units.length || 1;
     const r = 20 + Math.sin(t * 6) * 2;
-    owners.forEach((o, i) => {
+    let a0 = t;
+    for (const [o, n] of counts) {
+      const a1 = a0 + (n / total) * Math.PI * 2;
       ctx.strokeStyle = game.players[o].faction.colors.main;
       ctx.lineWidth = 5;
       ctx.beginPath();
-      ctx.arc(b.x, b.y, r, (i / owners.length) * Math.PI * 2 + t, ((i + 1) / owners.length) * Math.PI * 2 + t);
+      ctx.arc(b.x, b.y, r, a0, a1);
       ctx.stroke();
-    });
+      a0 = a1;
+    }
     if (view.selectedBattle === b.id) {
       ctx.strokeStyle = '#fff';
       ctx.lineWidth = 2;
@@ -310,6 +316,8 @@ export function drawBattle(ctx, game, battle) {
     }
   }
 
+  drawGround(ctx, game, battle);
+
   const units = [...battle.units].sort((a, b) => a.y - b.y);
   for (const u of units) {
     ctx.fillStyle = 'rgba(0,0,0,0.25)';
@@ -318,8 +326,17 @@ export function drawBattle(ctx, game, battle) {
     ctx.fill();
   }
   for (const u of units) {
-    const fid = game.players[u.owner].factionId;
+    const fid = u.def.faction;
+    if (u.heat) {
+      ctx.fillStyle = `rgba(255,120,30,${Math.min(0.6, 0.12 + u.heat * 0.06)})`;
+      ctx.beginPath();
+      ctx.arc(u.x, u.y, 0.55 + Math.min(0.35, u.heat * 0.04), 0, Math.PI * 2);
+      ctx.fill();
+    }
+    if (u.husk !== null) ctx.globalAlpha = 0.6;
     drawUnit(ctx, fid, u.def.id, u.x, u.y, 1.35, u.fx < 0);
+    ctx.globalAlpha = 1;
+    drawStatus(ctx, game, battle, u);
     const frac = u.src.hp / u.stats.hp;
     if (frac < 0.999) {
       ctx.fillStyle = 'rgba(0,0,0,0.6)';
@@ -361,7 +378,162 @@ export function drawBattle(ctx, game, battle) {
       ctx.stroke();
     }
   }
+  drawEffects(ctx, game, battle);
   ctx.restore();
+}
+
+// ---- upgrade effects in battle ----------------------------------------------------
+
+function has(u, effect) {
+  return u.src.upgraded && u.def.upgrade.effect === effect;
+}
+
+// Under the units: Warden sand piles, Lodestone fields, Common Body threads.
+function drawGround(ctx, game, battle) {
+  for (const p of battle.piles) {
+    ctx.fillStyle = '#c9a565';
+    ctx.strokeStyle = '#7a5a2e';
+    ctx.lineWidth = 0.05;
+    ctx.beginPath();
+    ctx.ellipse(p.x, p.y + 0.25, 0.5, 0.22, 0, Math.PI, 0);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  }
+  const t = battle.time;
+  for (const u of battle.units) {
+    if (!has(u, 'lodestone')) continue;
+    const reach = u.r + u.def.upgrade.radius;
+    ctx.strokeStyle = game.players[u.owner].faction.colors.accent;
+    ctx.lineWidth = 0.05;
+    for (let i = 0; i < 3; i++) {
+      // Rings drift inward, the field visibly drawing things toward the Stone.
+      const f = 1 - ((t * 0.4 + i / 3) % 1);
+      ctx.globalAlpha = 0.25 * (1 - f);
+      ctx.beginPath();
+      ctx.arc(u.x, u.y, u.r + f * (reach - u.r), 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+  }
+  const pools = new Map();
+  for (const u of battle.units) {
+    if (!has(u, 'commonBody')) continue;
+    if (!pools.has(u.owner)) pools.set(u.owner, []);
+    pools.get(u.owner).push(u);
+  }
+  for (const [owner, list] of pools) {
+    ctx.strokeStyle = game.players[owner].faction.colors.accent;
+    ctx.globalAlpha = 0.35;
+    ctx.lineWidth = 0.04;
+    ctx.beginPath();
+    // Each Comrade threads to its nearest neighbour: a loose network, not a web.
+    for (const a of list) {
+      let best = null;
+      let bd = Infinity;
+      for (const b of list) {
+        const d = (a.x - b.x) ** 2 + (a.y - b.y) ** 2;
+        if (b !== a && d < bd) {
+          bd = d;
+          best = b;
+        }
+      }
+      if (!best) continue;
+      const mx = (a.x + best.x) / 2 + (a.y - best.y) * 0.15;
+      const my = (a.y + best.y) / 2 - (a.x - best.x) * 0.15;
+      ctx.moveTo(a.x, a.y);
+      ctx.quadraticCurveTo(mx, my, best.x, best.y);
+    }
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+}
+
+// On a unit: footnotes, flames, infection, an unspent Long Exposure charge.
+function drawStatus(ctx, game, battle, u) {
+  const t = battle.time;
+  if (u.notes) {
+    ctx.fillStyle = '#1a140c';
+    ctx.font = 'bold 0.32px serif';
+    ctx.textAlign = 'center';
+    for (let i = 0; i < u.notes; i++) {
+      const a = t * 0.8 + (i / u.notes) * Math.PI * 2;
+      ctx.fillText('*', u.x + Math.cos(a) * 0.6, u.y + Math.sin(a) * 0.35 + 0.1);
+    }
+  }
+  if (u.burn) {
+    for (let i = 0; i < 3; i++) {
+      const flick = Math.sin(t * 17 + i * 2.1 + u.uid) * 0.06;
+      ctx.fillStyle = i === 1 ? '#ffd05a' : '#ff6a1a';
+      ctx.beginPath();
+      ctx.ellipse(u.x - 0.22 + i * 0.22, u.y - 0.35 + flick, 0.08, 0.18 + flick, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  if (u.infected) {
+    ctx.fillStyle = game.players[u.infected.owner].faction.colors.accent;
+    for (let i = 0; i < 4; i++) {
+      const a = u.uid * 1.7 + i * 1.9;
+      ctx.beginPath();
+      ctx.arc(u.x + Math.cos(a) * 0.3, u.y + Math.sin(a) * 0.25, 0.07, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  if (u.husk !== null) {
+    ctx.strokeStyle = game.players[u.owner].faction.colors.main;
+    ctx.lineWidth = 0.06;
+    ctx.setLineDash([0.12, 0.1]);
+    ctx.beginPath();
+    ctx.arc(u.x, u.y, 0.58, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  if (has(u, 'longExposure') && !u.exposed) {
+    const k = 0.5 + 0.5 * Math.sin(t * 4 + u.uid);
+    ctx.fillStyle = `rgba(255,170,60,${0.4 + 0.5 * k})`;
+    ctx.beginPath();
+    ctx.arc(u.x + u.fx * 0.4, u.y + u.fy * 0.4 - 0.1, 0.07 + 0.05 * k, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+// Brief events: Rewind sand trails, Shelter links, husks rising, exposure beams.
+function drawEffects(ctx, game, battle) {
+  for (const f of battle.fx) {
+    const age = battle.time - f.time;
+    if (f.kind === 'rewind' && age < 0.8) {
+      ctx.fillStyle = '#e8cf8f';
+      const pts = [f.from, ...f.path.slice().reverse()];
+      for (let i = 0; i < pts.length; i += 3) {
+        const a = (1 - age / 0.8) * (1 - i / pts.length);
+        ctx.globalAlpha = Math.max(0, a);
+        ctx.beginPath();
+        ctx.arc(pts[i].x, pts[i].y, 0.09, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+    } else if (f.kind === 'shelter' && age < 0.25 && !f.a.dead && !f.b.dead) {
+      ctx.strokeStyle = `rgba(120,230,120,${1 - age / 0.25})`;
+      ctx.lineWidth = 0.08;
+      ctx.beginPath();
+      ctx.moveTo(f.a.x, f.a.y);
+      ctx.lineTo(f.b.x, f.b.y);
+      ctx.stroke();
+    } else if (f.kind === 'husk' && age < 0.6) {
+      ctx.strokeStyle = `rgba(242,227,198,${1 - age / 0.6})`;
+      ctx.lineWidth = 0.06;
+      ctx.beginPath();
+      ctx.arc(f.x, f.y, 0.3 + age * 1.5, 0, Math.PI * 2);
+      ctx.stroke();
+    } else if (f.kind === 'exposure' && age < 0.35) {
+      ctx.strokeStyle = `rgba(255,200,120,${1 - age / 0.35})`;
+      ctx.lineWidth = 0.22 * (1 - age / 0.35) + 0.04;
+      ctx.beginPath();
+      ctx.moveTo(f.x, f.y);
+      ctx.lineTo(f.tx, f.ty);
+      ctx.stroke();
+    }
+  }
 }
 
 function burst(ctx, x, y, age) {

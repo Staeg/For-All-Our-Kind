@@ -346,17 +346,38 @@ export const STAT_ICON = {
 
 export const STAT_LABEL = { hp: 'HP', acc: 'ACC', dmg: 'DMG', arm: 'ARM', eva: 'EVA', spd: 'SPD', rng: 'RNG' };
 
-const EXTRA_ICON = {
-  regen: '<svg viewBox="0 0 16 16"><path d="M6 1.5 H10 V6 H14.5 V10 H10 V14.5 H6 V10 H1.5 V6 H6 Z" fill="#5fd35f" stroke="#1d6b1d" stroke-width="1"/></svg>',
-  splash: '<svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.5" fill="none" stroke="#ff8a2a" stroke-width="1.3"/><circle cx="8" cy="8" r="4" fill="none" stroke="#ffb347" stroke-width="1.3"/><circle cx="8" cy="8" r="1.8" fill="#ff5a1a"/></svg>',
+// One glyph per upgrade effect, drawn on a 16x16 grid.
+const S = (body) => `<svg viewBox="0 0 16 16">${body}</svg>`;
+const EFFECT_ICON = {
+  // A sand pile with a figure re-forming above it.
+  reshelving: S('<path d="M1.5 14.5 Q8 8.5 14.5 14.5 Z" fill="#d9b26f" stroke="#7a5a2e" stroke-width="0.8"/><rect x="6.3" y="3" width="3.4" height="6.5" rx="1.4" fill="#f2e3c6" stroke="#7a5a2e" stroke-width="0.7" stroke-dasharray="1.2 0.8"/>'),
+  // An asterisk over a dented shield.
+  footnotes: S('<path d="M8 2 L13.5 4 L13 9 C12.5 11.5 10.5 13.3 8 14.5 C5.5 13.3 3.5 11.5 3 9 L2.5 4 Z" fill="#c9d1da" stroke="#6b7682" stroke-width="0.9"/><path d="M8 5 V11 M5.4 6.5 L10.6 9.5 M10.6 6.5 L5.4 9.5" stroke="#1a1a1a" stroke-width="1.3" stroke-linecap="round"/>'),
+  // An hourglass circled by a backwards arrow.
+  rewind: S('<path d="M2.8 9.5 A5.4 5.4 0 1 0 4.2 4" fill="none" stroke="#2fa8a0" stroke-width="1.3"/><path d="M1.5 2.2 L4.8 4.6 L1.3 6 Z" fill="#2fa8a0"/><path d="M5.8 4.5 H10.2 L8 8 L10.2 11.5 H5.8 L8 8 Z" fill="#d9b26f" stroke="#7a5a2e" stroke-width="0.7"/>'),
+  // A flame leaping to a second flame.
+  wildfire: S('<path d="M6 15 C2 15 1.5 10.5 4 8 C4 10 5 10.5 5.5 10.5 C4.5 7 6.5 4 8.5 3 C8 6 10.5 7.5 10.5 11 C10.5 13.5 8.5 15 6 15 Z" fill="#ff7a2a" stroke="#b33b10" stroke-width="0.7"/><path d="M12.5 7.5 C11.2 7.5 11 6 11.8 5 C12 5.8 12.4 5.8 12.6 5.6 C12.3 4.5 13 3.6 13.6 3 C13.5 4.2 14.5 4.8 14.5 6 C14.5 7 13.6 7.5 12.5 7.5 Z" fill="#ffc04a"/>'),
+  // A stone with field lines curving into it.
+  lodestone: S('<path d="M1 3 Q6 8 1 13 M15 3 Q10 8 15 13" fill="none" stroke="#38e0ea" stroke-width="0.9" opacity="0.8"/><path d="M4.5 10 L5.5 5.5 L9 4 L12 6.5 L11.5 11 L7.5 12.5 Z" fill="#8f8aa3" stroke="#43308f" stroke-width="0.9"/>'),
+  // Gust lines.
+  crosswind: S('<path d="M1.5 5.5 H10 A2.2 2.2 0 1 0 8 3 M1.5 9 H13 A2 2 0 1 1 11.2 11.5 M3.5 12.5 H8" fill="none" stroke="#bfe9ff" stroke-width="1.4" stroke-linecap="round"/>'),
+  // Three caps joined by threads.
+  commonBody: S('<path d="M4 11 L8 4.5 L12 11 Z" fill="none" stroke="#f2e3c6" stroke-width="0.8" stroke-dasharray="1 0.8"/><circle cx="8" cy="4.5" r="2.4" fill="#c8372d" stroke="#6e1a14" stroke-width="0.7"/><circle cx="4" cy="11" r="2.4" fill="#c8372d" stroke="#6e1a14" stroke-width="0.7"/><circle cx="12" cy="11" r="2.4" fill="#c8372d" stroke="#6e1a14" stroke-width="0.7"/>'),
+  // A bracket shelf with a small figure tucked beneath and a plus.
+  shelter: S('<path d="M1.5 6 Q8 1 14.5 6 Q8 4.5 1.5 6 Z" fill="#c8372d" stroke="#6e1a14" stroke-width="0.8"/><circle cx="6.5" cy="10.5" r="2.4" fill="#f2e3c6" stroke="#6e1a14" stroke-width="0.7"/><path d="M12 8.5 V13.5 M9.5 11 H14.5" stroke="#5fd35f" stroke-width="1.5"/>'),
+  // A fruiting stalk sprouting from a head.
+  cordyceps: S('<circle cx="7" cy="11.5" r="3.4" fill="#e8e3d6" stroke="#7a7466" stroke-width="0.8"/><circle cx="5.8" cy="11.2" r="0.6" fill="#333"/><circle cx="8.2" cy="11.2" r="0.6" fill="#333"/><path d="M8.5 8.5 Q9.5 5 12.5 3.5" fill="none" stroke="#d8402f" stroke-width="1.3" stroke-linecap="round"/><circle cx="12.8" cy="3.2" r="1.4" fill="#f2e3c6" stroke="#d8402f" stroke-width="0.7"/>'),
+  // A chip receiving an upload.
+  postmortem: S('<rect x="3.5" y="6.5" width="9" height="7.5" rx="1" fill="#3d4a5a" stroke="#b9c6d3" stroke-width="0.8"/><path d="M5 6.5 V5 M8 6.5 V5 M11 6.5 V5 M5 14 V15.3 M11 14 V15.3" stroke="#b9c6d3" stroke-width="0.8"/><path d="M8 1 V5 M6.4 3.4 L8 5 L9.6 3.4" fill="none" stroke="#ff8a2a" stroke-width="1.2"/><rect x="6" y="8.7" width="4" height="3" fill="#ff8a2a"/>'),
+  // A gauge pinned in the red.
+  redline: S('<path d="M2 12 A6 6 0 0 1 14 12" fill="none" stroke="#b9c6d3" stroke-width="1.6"/><path d="M11.2 6.5 A6 6 0 0 1 14 12" fill="none" stroke="#ff3a1a" stroke-width="1.8"/><path d="M8 12 L12.8 7.3" stroke="#ff8a2a" stroke-width="1.3" stroke-linecap="round"/><circle cx="8" cy="12" r="1.3" fill="#3d4a5a"/>'),
+  // An aperture gathering light.
+  longExposure: S('<circle cx="8" cy="8" r="6" fill="#1d2430" stroke="#b9c6d3" stroke-width="0.9"/><path d="M8 2 L10 7 M14 8 L9 10 M8 14 L6 9 M2 8 L7 6" stroke="#b9c6d3" stroke-width="0.8"/><circle cx="8" cy="8" r="1.7" fill="#ff8a2a"/>'),
 };
 
-// An upgrade as a single badge: the icon of what it improves inside a ring in the
-// faction's colour, with a small up-arrow.
+// An upgrade as a single badge: its effect glyph inside a ring in the faction's colour.
 export function upgradeIcon(factionId, upgrade) {
   const k = FACTION_BY_ID[factionId].colors;
-  const key = Object.keys(upgrade.mods)[0];
-  const inner = (STAT_ICON[key] || EXTRA_ICON[key]).replace('<svg viewBox="0 0 16 16">', '<svg x="5" y="5" width="18" height="18" viewBox="0 0 16 16">');
-  return `<svg viewBox="0 0 28 28"><circle cx="14" cy="14" r="12.5" fill="${k.dark}" stroke="${k.main}" stroke-width="2"/>${inner}`
-    + '<path d="M21 3 L26 9 H23 V13 H19 V9 H16 Z" fill="#9fe39f" stroke="#1d4d1d" stroke-width="0.8"/></svg>';
+  const inner = EFFECT_ICON[upgrade.effect].replace('<svg viewBox="0 0 16 16">', '<svg x="5" y="5" width="18" height="18" viewBox="0 0 16 16">');
+  return `<svg viewBox="0 0 28 28"><circle cx="14" cy="14" r="12.5" fill="${k.dark}" stroke="${k.main}" stroke-width="2"/>${inner}</svg>`;
 }

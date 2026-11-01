@@ -220,3 +220,9 @@ button.ghost { background: transparent; }
   #map-wrap { height: auto; width: 100%; max-width: none; }
   #side { min-width: 0; }
 }
+
+#overlay table.post { font-size: 13px; border-collapse: collapse; background: rgba(20,24,18,0.9); border-radius: 8px; }
+#overlay table.post th { text-align: left; padding: 6px 10px; }
+#overlay table.post td { padding: 6px 10px; color: var(--muted); }
+#overlay table.post td b { color: var(--gold); }
+#overlay table.post .lane { display: block; color: var(--text); font-size: 12px; }

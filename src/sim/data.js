@@ -52,9 +52,9 @@ function unit(id, name, role, stats, upgrade, blurb) {
   };
 }
 
-// Upgrade `mods` are added to the unit's stats. Two special keys exist:
-//   regen  - HP regenerated per second while in battle
-//   splash - fraction of each hit's damage also dealt to enemies touching the target
+// Each unit type has one upgrade: a named `effect` that changes how the unit fights
+// (implemented in battle.js), plus that effect's tuning numbers. Upgrades never
+// change stats, so a unit's stats are always its type's base stats.
 export const FACTIONS = [
   {
     id: 'librarians',
@@ -63,13 +63,16 @@ export const FACTIONS = [
     colors: { main: '#d9b26f', dark: '#7a5a2e', accent: '#2fa8a0', banner: '#c99a45' },
     units: [
       unit('warden', 'Dust Warden', 'melee', {}, {
-        name: 'Rebound Linen', desc: 'Fresh wrappings.', mods: { hp: 20 },
+        name: 'Reshelving', effect: 'reshelving', restore: 0.25,
+        desc: 'A fallen Warden crumbles into a sand pile. If any Librarian is still standing when the battle ends, the pile re-forms at 25% HP.',
       }, 'Bog-standard shambling guard.'),
       unit('slinger', 'Scroll Slinger', 'ranged', { hp: 47, acc: 30, dmg: 8, rng: 4 }, {
-        name: 'Errata', desc: 'Corrected scrolls cut deeper.', mods: { dmg: 1.1 },
+        name: 'Footnotes', effect: 'footnotes', max: 5,
+        desc: 'Each hit annotates the target: -1 ARM per footnote, up to -5, for the rest of the battle. ARM can go negative.',
       }, 'Accurate but feeble paper cuts from afar.'),
       unit('sage', 'Hourglass Sage', 'ranged', { hp: 56, spd: 0.6, dmg: 19, rng: 4.5 }, {
-        name: 'Borrowed Time', desc: 'The sand runs faster.', mods: { spd: 0.07 },
+        name: 'Rewind', effect: 'rewind', radius: 6, seconds: 3,
+        desc: 'Once per battle, when a Librarian within 6 diameters would die, the sand runs back: it returns to where it stood, with the HP it had, 3 s earlier.',
       }, 'Slow, heavy, long-range blasts of time-sand.'),
     ],
   },
@@ -80,13 +83,16 @@ export const FACTIONS = [
     colors: { main: '#9a7cf4', dark: '#43308f', accent: '#38e0ea', banner: '#7f5ff0' },
     units: [
       unit('wisp', 'Ember Wisp', 'ranged', {}, {
-        name: 'Kindling', desc: 'Hits splash onto whoever is touching the target.', mods: { splash: 0.17 },
+        name: 'Wildfire', effect: 'wildfire', seconds: 3, dps: 2,
+        desc: 'Hits set the target burning for 3 s (2 damage per second, ignoring ARM). When a burning unit dies, the fire jumps to every enemy touching it.',
       }, 'Bog-standard drifting firebolt thrower.'),
       unit('monolith', 'Stone Visitor', 'melee', { hp: 116, arm: 2, dmg: 9, spd: 0.7 }, {
-        name: 'Bedrock', desc: 'Denser stone.', mods: { arm: 1 },
+        name: 'Lodestone', effect: 'lodestone', radius: 4, pull: 0.6,
+        desc: 'Pulls enemies within 4 diameters gently toward the Stone, harder the closer they are.',
       }, 'Slow armoured boulder with a weak punch.'),
       unit('sprite', 'Gale Sprite', 'ranged', { hp: 39, eva: 10, dmg: 8, spd: 1.4, rng: 2.5 }, {
-        name: 'Tailwind', desc: 'Even harder to pin down.', mods: { eva: 21 },
+        name: 'Crosswind', effect: 'crosswind', push: 0.5,
+        desc: 'Every hit shoves the target half a diameter away from the Sprite.',
       }, 'Fast, evasive, fragile, short-ranged gusts.'),
     ],
   },
@@ -97,13 +103,16 @@ export const FACTIONS = [
     colors: { main: '#c8372d', dark: '#6e1a14', accent: '#f2e3c6', banner: '#d8402f' },
     units: [
       unit('comrade', 'Spore Comrade', 'melee', {}, {
-        name: 'Shared Burden', desc: 'The network mends its members mid-fight.', mods: { regen: 1.5 },
+        name: 'Common Body', effect: 'commonBody',
+        desc: 'Damage taken by any Comrade is split evenly across every Comrade in the battle.',
       }, 'Bog-standard mushroom worker with a hammer.'),
       unit('bulwark', 'Shelf Bulwark', 'melee', { hp: 120, dmg: 8, arm: 2, spd: 0.8 }, {
-        name: 'Collective Wall', desc: 'Thicker shelves.', mods: { hp: 25 },
+        name: 'Shelter', effect: 'shelter', share: 0.5,
+        desc: 'Half of every hit on a Compatriot touching a Bulwark goes to the Bulwark instead, through its ARM, and the sheltered ally heals by the Bulwark\'s ARM.',
       }, 'Armoured bracket-fungus wall that hits softly.'),
       unit('lobber', 'Puffball Lobber', 'ranged', { hp: 95, dmg: 9, rng: 3 }, {
-        name: 'Spore Cloud', desc: 'Puffs spread to everyone touching the target.', mods: { splash: 0.24 },
+        name: 'Cordyceps', effect: 'cordyceps', seconds: 6, hp: 0.5,
+        desc: 'Hits infect the target. An infected enemy that dies rises as a husk under your control for 6 s, at half HP, keeping its weapon.',
       }, 'Hardy, short-ranged spore puffer.'),
     ],
   },
@@ -114,17 +123,24 @@ export const FACTIONS = [
     colors: { main: '#b9c6d3', dark: '#3d4a5a', accent: '#ff8a2a', banner: '#8fa3b8' },
     units: [
       unit('servitor', 'Servitor', 'melee', {}, {
-        name: 'Iterated Plating', desc: 'Each revision is tougher.', mods: { arm: 1.3 },
+        name: 'Postmortem', effect: 'postmortem', max: 5,
+        desc: 'A dying Servitor uploads what killed it. All your Servitors take 1 less damage per hit from that unit type for the rest of the game, up to 5.',
       }, 'Bog-standard boxy melee drone.'),
       unit('striker', 'Striker Frame', 'melee', { hp: 70, dmg: 9, spd: 1.5 }, {
-        name: 'Overclock', desc: 'Faster servos.', mods: { spd: 0.38 },
+        name: 'Redline', effect: 'redline', attack: 0.2, move: 0.1, dps: 1,
+        desc: 'Every hit adds a heat stack: +20% attack speed and +10% move speed each, but 1 damage per second each. Heat lasts until the battle ends.',
       }, 'Very fast, fragile blade frame.'),
       unit('lancer', 'Optic Lancer', 'ranged', { hp: 46, acc: 20, dmg: 14, spd: 0.7, rng: 4.5 }, {
-        name: 'Targeting Lattice', desc: 'Sharper optics.', mods: { acc: 11 },
+        name: 'Long Exposure', effect: 'longExposure', perSecond: 1, max: 40,
+        desc: 'Lancers charge while away from battle. Each Lancer\'s first shot in a battle deals +1 damage per second since its last battle, up to +40.',
       }, 'Slow-firing precise long-range laser.'),
     ],
   },
 ];
+
+// Each unit type knows its faction, so a unit fighting for someone else (a husk)
+// still looks like itself.
+for (const f of FACTIONS) for (const u of f.units) u.faction = f.id;
 
 export const FACTION_BY_ID = Object.fromEntries(FACTIONS.map((f) => [f.id, f]));
 
@@ -158,8 +174,10 @@ export function defaultFormation(factionId) {
   return formation;
 }
 
-export function effectiveStats(def, upgraded) {
-  const s = { ...def.stats, regen: 0, splash: 0 };
-  if (upgraded) for (const [k, v] of Object.entries(def.upgrade.mods)) s[k] = (s[k] || 0) + v;
-  return s;
+// A fresh unit record. `upgraded` is read live by the battle engine, so buying an
+// upgrade takes effect immediately, even mid-fight. `idleSince` is the game time the
+// unit last left a battle (or spawned), for Long Exposure.
+export function newUnit(def, owner, upgraded, time = 0) {
+  const stats = { ...def.stats };
+  return { def, owner, stats, hp: stats.hp, upgraded, idleSince: time };
 }

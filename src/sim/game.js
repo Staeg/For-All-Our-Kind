@@ -4,13 +4,13 @@
 import {
   DT, MARCH_SPEED, TOWER_OFFSET, ENGAGE_DIST, JOIN_DIST, WAVE_INTERVAL, PLAYER_HP,
   UNIT_COST, UPGRADE_COST, MAX_GAME_SECONDS, FACTION_BY_ID, FIRE_SPEED, startingWave,
-  defaultFormation, effectiveStats,
+  defaultFormation, newUnit,
 } from './data.js';
 import { Rng } from './rng.js';
 import { Battle } from './battle.js';
 import { ensureSlots } from './formation.js';
 import {
-  NODE_POS, LANES, laneNodes, continueNodes, routeFromNodes, makeRoute, posAt, segmentAt,
+  NODE_POS, CENTRE, LANES, laneNodes, continueNodes, routeFromNodes, makeRoute, posAt, segmentAt,
 } from './map.js';
 
 export class Game {
@@ -35,6 +35,8 @@ export class Game {
         formation: defaultFormation(fid),
         kills: 0,
         towerDamage: 0,
+        // Per lane: gold earned from kills by that lane's units, and units sent down it.
+        laneStats: Object.fromEntries(LANES.map((l) => [l, { gold: 0, sent: 0 }])),
         eliminatedAt: null,
       };
     });
@@ -50,6 +52,7 @@ export class Game {
     this.events = [];
     this.firstBattleWinner = null;
     this.fires = []; // fire waves rolling out from eliminated players' corners
+    this.memory = {}; // per-player knowledge that outlives battles (Postmortem)
   }
 
   alive() {
@@ -75,15 +78,11 @@ export class Game {
     if (!p.alive || p.gold < UPGRADE_COST || p.upgrades.has(typeId)) return false;
     p.gold -= UPGRADE_COST;
     p.upgrades.add(typeId);
-    // Upgrades apply immediately to every living unit of that type, in all lanes.
+    // Upgrades apply immediately to every living unit of that type, in all lanes,
+    // including units in the middle of a battle.
     for (const a of this.armies) {
       if (a.owner !== pi) continue;
-      for (const u of a.units) {
-        if (u.def.id !== typeId) continue;
-        const next = effectiveStats(u.def, true);
-        u.hp += next.hp - u.stats.hp;
-        Object.assign(u.stats, next);
-      }
+      for (const u of a.units) if (u.def.id === typeId) u.upgraded = true;
     }
     return true;
   }
@@ -141,11 +140,13 @@ export class Game {
         for (const u of p.faction.units) {
           const n = p.roster[lane][u.id] || 0;
           for (let k = 0; k < n; k++) {
-            const stats = effectiveStats(u, p.upgrades.has(u.id));
-            units.push({ def: u, owner: p.index, stats, hp: stats.hp, slot: { ...slots[u.id][k] } });
+            const unit = newUnit(u, p.index, p.upgrades.has(u.id), this.time);
+            unit.slot = { ...slots[u.id][k] };
+            units.push(unit);
           }
         }
         if (!units.length) continue;
+        p.laneStats[lane].sent += units.length;
         this.armies.push({
           id: this.nextId++,
           owner: p.index,
@@ -215,14 +216,18 @@ export class Game {
       if (!b) {
         b = this.newBattle(p.x, p.y);
         b.setTower(target, { x: p.dx, y: p.dy });
+        const from = a.route.nodes[a.route.nodes.length - 2];
+        b.towerLane = from === CENTRE ? 'mid' : from === (target + 1) % 4 ? 'cw' : 'ccw';
       }
       this.joinBattle(a, b);
     }
   }
 
   newBattle(x, y) {
-    const b = new Battle(this.nextId++, x, y, this.rng);
-    b.onKill = (owner, victim) => this.onKill(owner, victim);
+    const b = new Battle(this.nextId++, x, y, this.rng, { memory: this.memory, startTime: this.time });
+    // Tower kills count toward the defender's lane facing that tower.
+    b.onKill = (owner, victim, killer) => this.onKill(owner, victim,
+      killer.isTower ? b.towerLane : b.armies.get(killer.armyId)?.lane);
     b.onTowerDamage = (attacker, owner, amount) => {
       this.players[owner].hp -= amount;
       this.players[attacker].towerDamage += amount;
@@ -238,9 +243,10 @@ export class Game {
     b.addArmy(a, { x: p.dx, y: p.dy }, this.players[a.owner].formation);
   }
 
-  onKill(owner, victim) {
+  onKill(owner, victim, lane) {
     const p = this.players[owner];
     p.gold += victim.def.tier;
+    if (lane) p.laneStats[lane].gold += victim.def.tier;
     p.kills++;
   }
 
@@ -256,6 +262,7 @@ export class Game {
       if (this.firstBattleWinner === null) this.firstBattleWinner = winner;
       for (const a of b.armies.values()) {
         a.units = survivors.get(a.id) || [];
+        for (const u of a.units) u.idleSince = this.time;
         a.battle = null;
         a.state = 'march';
       }
@@ -276,6 +283,7 @@ export class Game {
         this.log('elim', `${p.faction.name} have been eliminated`, { player: p.index });
         for (const b of this.battles) {
           b.units = b.units.filter((u) => u.owner !== p.index);
+          b.piles = b.piles.filter((x) => x.owner !== p.index);
           if (b.tower && b.tower.owner === p.index) b.tower = null;
         }
         // A wave of fire rolls from their corner down both perimeter lanes.

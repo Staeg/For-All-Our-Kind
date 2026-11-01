@@ -3,7 +3,7 @@ import { Game } from '../src/sim/game.js';
 import { SimpleAI } from '../src/sim/ai.js';
 import { Battle } from '../src/sim/battle.js';
 import { Rng } from '../src/sim/rng.js';
-import { FACTIONS, startingWave, defaultFormation, effectiveStats } from '../src/sim/data.js';
+import { FACTIONS, startingWave, defaultFormation, newUnit } from '../src/sim/data.js';
 
 export const ids = FACTIONS.map((f) => f.id);
 
@@ -38,13 +38,15 @@ export function aiGame(seed) {
   return { winner: g.winner === null ? null : seats[g.winner], time: g.time, seats, g };
 }
 
+// Seconds an army typically marches before its first fight, for Long Exposure.
+const MARCH_BEFORE_FIGHT = 17;
+
 function makeUnits(fid, counts, upgraded, owner) {
   const out = [];
   const f = FACTIONS.find((x) => x.id === fid);
   for (const u of f.units) {
     for (let k = 0; k < (counts[u.id] || 0); k++) {
-      const stats = effectiveStats(u, upgraded.has(u.id));
-      out.push({ def: u, owner, stats, hp: stats.hp });
+      out.push(newUnit(u, owner, upgraded.has(u.id), -MARCH_BEFORE_FIGHT));
     }
   }
   return out;
@@ -77,6 +79,7 @@ export function fight(fa, ca, upA, fb, cb, seed) {
     b.step();
     ticks++;
   }
+  b.survivorsByArmy(); // applies end-of-battle effects such as Reshelving
   return totalHp(ua) / ha - totalHp(ub) / hb;
 }
 

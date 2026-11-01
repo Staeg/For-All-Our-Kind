@@ -1,7 +1,7 @@
 // Browser entry point: start screen, real-time loop around the deterministic sim,
 // the unit bar / info panel, the deploy screen and the battle view.
 import {
-  FACTIONS, TICK_HZ, UNIT_COST, UPGRADE_COST, STAT_KEYS, effectiveStats, MAP_SIZE,
+  FACTIONS, TICK_HZ, UNIT_COST, UPGRADE_COST, STAT_KEYS, MAP_SIZE,
 } from '../sim/data.js';
 import { Game } from '../sim/game.js';
 import { SimpleAI } from '../sim/ai.js';
@@ -41,20 +41,11 @@ function fmtStat(k, v) {
   return Number.isInteger(v) ? String(v) : v.toFixed(1);
 }
 
-function statsHtml(def, upgraded) {
-  const s = effectiveStats(def, upgraded);
-  const base = def.stats;
+function statsHtml(def) {
+  const s = def.stats;
   return STAT_KEYS.filter((k) => k === 'hp' || k === 'dmg' || k === 'spd' || k === 'rng' || s[k] !== 0)
-    .map((k) => `<span class="stat${s[k] !== base[k] ? ' up' : ''}" title="${STAT_LABEL[k]}">${STAT_ICON[k]}${fmtStat(k, s[k])}</span>`)
+    .map((k) => `<span class="stat" title="${STAT_LABEL[k]}">${STAT_ICON[k]}${fmtStat(k, s[k])}</span>`)
     .join('');
-}
-
-function modsText(mods) {
-  return Object.entries(mods).map(([k, v]) => {
-    if (k === 'regen') return `+${v} HP/s regen in battle`;
-    if (k === 'splash') return `${Math.round(v * 100)}% of each hit splashes onto enemies touching the target`;
-    return `+${+v.toFixed(2)} ${STAT_LABEL[k]}`;
-  }).join(', ');
 }
 
 // ---- start screen -------------------------------------------------------------
@@ -68,7 +59,7 @@ function buildStart() {
     card.style.borderTopColor = f.colors.main;
     card.innerHTML = `<h3 style="color:${f.colors.main}">${f.name}</h3><p>${f.blurb}</p>`
       + f.units.map((u) => `<div class="urow"><img src="${spriteDataUrl(f.id, u.id)}" alt="">`
-        + `<div><div class="nm">${u.name} <small>(${u.role})</small></div><div class="stats">${statsHtml(u, false)}</div>`
+        + `<div><div class="nm">${u.name} <small>(${u.role})</small></div><div class="stats">${statsHtml(u)}</div>`
         + `<div class="bl">${u.blurb}</div></div></div>`).join('');
     card.onclick = () => {
       chosen = f.id;
@@ -200,13 +191,13 @@ function renderInfo() {
   const owned = p.upgrades.has(id);
   const lanes = LANES.filter((l) => laneTarget(l)).map((l) => `${laneArrow(l)} ${p.roster[l][id] || 0}`).join('  ');
   let html = `<div class="head"><b>${u.name}</b><span class="cost">${UNIT_COST}g</span><span class="lanes">${lanes}</span></div>`
-    + `<div class="stats">${statsHtml(u, owned)}</div>`
+    + `<div class="stats">${statsHtml(u)}</div>`
     + `<div class="upgs"><span class="upg-icon${owned ? ' owned' : ''}${!owned && p.gold < UPGRADE_COST ? ' poor' : ''}" data-upg="${id}">`
     + `${upgradeIcon(p.factionId, u.upgrade)}</span>`;
   if (view.locked && view.hoverUpgrade) {
     const state = owned ? 'Owned' : p.gold >= UPGRADE_COST ? 'Click to buy' : 'Not enough gold';
     html += `<span class="upg-detail"><b>${u.upgrade.name}</b> · <span class="cost">${UPGRADE_COST}g</span> · `
-      + `${modsText(u.upgrade.mods)} · ${state}</span>`;
+      + `${u.upgrade.desc} · ${state}</span>`;
   }
   html += '</div>';
   info.innerHTML = html;
@@ -246,6 +237,11 @@ window.addEventListener('pointermove', (e) => {
     d.moved = true;
     const g = $('ghost');
     g.src = spriteDataUrl(game.players[human].factionId, d.unit);
+    // Same on-screen size as the units standing on the deploy screen.
+    const cv = $('deploy');
+    const size = 1.35 * (Math.min(cv.width, cv.height) / 24) * (cv.getBoundingClientRect().width / cv.width);
+    g.style.width = `${size}px`;
+    g.style.height = `${size}px`;
     g.classList.remove('hidden');
   }
   if (d.moved) {
@@ -460,6 +456,21 @@ const nextFrame = location.search.includes("timer")
   ? (cb) => setTimeout(() => cb(performance.now()), 16)
   : (cb) => requestAnimationFrame(cb);
 
+// Post-game summary: per player, per lane, gold earned there and units sent.
+function statsTable() {
+  const LANE_OFFSET = { ccw: 3, mid: 2, cw: 1 };
+  const rows = game.players.map((p) => {
+    const cells = LANES.map((l) => {
+      const s = p.laneStats[l];
+      const toward = game.players[(p.index + LANE_OFFSET[l]) % 4].faction.name.replace('The ', '');
+      return `<td><span class="lane">${l === 'mid' ? 'Centre → ' : '→ '}${toward}</span>`
+        + `<b>${s.gold}g</b> earned · ${s.sent} sent</td>`;
+    }).join('');
+    return `<tr><th style="color:${p.faction.colors.main}">${p.faction.name}${p.index === human ? ' (you)' : ''}</th>${cells}</tr>`;
+  }).join('');
+  return `<table class="post">${rows}</table>`;
+}
+
 let panelTimer = 0;
 function frame(now) {
   nextFrame(frame);
@@ -509,7 +520,7 @@ function frame(now) {
     if (game.over && $('overlay').classList.contains('hidden')) {
       const w = game.winner === null ? null : game.players[game.winner];
       const msg = w ? (w.index === human ? 'Victory! The simulation favours you.' : `${w.faction.name} win the simulation.`) : 'The simulation ends without a victor.';
-      $('overlay').innerHTML = `<div>${msg}</div><button id="again">Back to faction select</button>`;
+      $('overlay').innerHTML = `<div>${msg}</div>${statsTable()}<button id="again">Back to faction select</button>`;
       $('overlay').classList.remove('hidden');
       $('again').onclick = () => {
         game = null;
