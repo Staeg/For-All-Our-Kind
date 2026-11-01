@@ -22,7 +22,8 @@
         <li>When enemy armies meet, a battle starts. Units phase in on the side they came from, in your formation, and fight it out. Reinforcements join running battles.</li>
         <li>An army that reaches an undefended tower damages that player directly. Players have 10,000 HP. Last one standing wins.</li>
         <li>Each kill earns 1 gold per tier. Spend 20 gold to add a unit to a lane's wave permanently, or 60 gold for a unit type's one-time upgrade (all lanes).</li>
-        <li>Formation sliders set where each unit type phases in: back of your quarter of the field, or front.</li>
+        <li>The deploy screen shows one lane's formation and tower. Pick the lane with its tabs or by clicking one of your towers, then drag units to arrange them.</li>
+        <li>Drag a unit icon onto the deploy screen (or onto one of your towers) to buy it for that lane. Click an icon to pin its details and buy its upgrade.</li>
         <li>Space pauses. Click a battle on the map to watch it.</li>
       </ul>
     </details>
@@ -34,24 +35,34 @@
       <div id="overlay" class="hidden"></div>
     </div>
     <aside id="side">
-      <div id="topbar">
-        <div id="players"></div>
-        <div id="controls">
-          <button data-speed="0" title="Pause (space)">❚❚</button>
-          <button data-speed="1" class="on">1×</button>
-          <button data-speed="2">2×</button>
-          <button data-speed="4">4×</button>
-          <span id="clock">0:00</span>
+      <div id="controls">
+        <button data-speed="0" title="Pause (space)">❚❚</button>
+        <button data-speed="1" class="on">1×</button>
+        <button data-speed="2">2×</button>
+        <button data-speed="4">4×</button>
+        <span id="gold" title="Gold"></span>
+        <span id="clock">0:00</span>
+      </div>
+      <div id="views">
+        <div id="battle-wrap" class="view">
+          <canvas id="battle"></canvas>
+          <div id="battle-caption" class="cap"></div>
+        </div>
+        <div id="deploy-wrap" class="view">
+          <canvas id="deploy"></canvas>
+          <div id="lane-tabs"></div>
+          <div id="deploy-caption" class="cap"></div>
         </div>
       </div>
-      <div id="battle-wrap">
-        <canvas id="battle"></canvas>
-        <div id="battle-caption"></div>
+      <div id="shop">
+        <div id="unit-bar"></div>
+        <div id="info" class="hidden"></div>
       </div>
-      <div id="shop"></div>
       <div id="log"></div>
     </aside>
   </section>
+
+  <img id="ghost" class="hidden" alt="">
 
   <script type="module" src="./src/ui/main.js"></script>
 </body>

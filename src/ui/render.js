@@ -83,12 +83,27 @@ export function drawMap(ctx, game, view) {
   ctx.save();
   ctx.scale(k, k);
 
+  // Eliminated players' buildings are gone entirely.
   for (const p of game.players) {
-    for (const t of towerSpots(p.index)) drawTower(ctx, p.factionId, t.x, t.y, 30, !p.alive);
+    if (!p.alive) continue;
+    for (const t of towerSpots(p.index)) drawTower(ctx, p.factionId, t.x, t.y, 30, false);
   }
   for (const p of game.players) {
+    if (!p.alive) continue;
     const n = NODE_POS[p.index];
-    drawBase(ctx, p.factionId, n.x, n.y, 64, !p.alive);
+    drawBase(ctx, p.factionId, n.x, n.y, 64, false);
+    // Health bar under the castle.
+    const w = 84;
+    const y = n.y + 50;
+    ctx.fillStyle = 'rgba(0,0,0,0.65)';
+    ctx.fillRect(n.x - w / 2 - 2, y - 2, w + 4, 11);
+    ctx.fillStyle = '#d94141';
+    ctx.fillRect(n.x - w / 2, y, w * Math.max(0, p.hp / PLAYER_HP), 7);
+    if (p.index === view.human) {
+      ctx.strokeStyle = '#f2c14e';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(n.x - w / 2 - 2, y - 2, w + 4, 11);
+    }
   }
 
   // Marching and sieging armies: a little column of troops per dot.
@@ -114,7 +129,8 @@ export function drawMap(ctx, game, view) {
   // Fire waves from eliminated players' corners.
   for (const f of game.fires) {
     const reach = Math.min(f.d, f.len);
-    const fade = Math.max(0, Math.min(1, 1 - (t - f.start - f.len / FIRE_SPEED) / 3));
+    // Full strength while rolling, then gone within a third of a second.
+    const fade = Math.max(0, Math.min(1, 1 - (t - f.start - f.len / FIRE_SPEED) / 0.35));
     for (let d = 0; d < reach; d += 14) {
       const flick = Math.sin(t * 20 + d * 0.7) * 0.5 + 0.5;
       const front = reach - d < 60 ? 1.4 : 1;
@@ -219,7 +235,7 @@ export function drawBattle(ctx, game, battle) {
     ctx.fillStyle = 'rgba(255,255,255,0.6)';
     ctx.font = '15px system-ui, sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText('No battle in progress. Click a battle on the map to watch it.', W / 2, H / 2);
+    ctx.fillText("No battle yet", W / 2, H / 2);
     return;
   }
   const R = ARENA_RADIUS + 1.5;
@@ -371,8 +387,8 @@ export function laneDirection(game, pi, lane) {
 export function formationFrame(ctx, dir) {
   const W = ctx.canvas.width;
   const H = ctx.canvas.height;
-  const k = Math.min(H / 19, W / 22);
-  const off = ARENA_RADIUS - SPAWN_DEPTH / 2 - 1.2;
+  const k = Math.min(H, W) / 24;
+  const off = ARENA_RADIUS - 4; // leaves room for the tower behind the zone
   const c = { x: -dir.x * off, y: -dir.y * off };
   return {
     k,
@@ -390,7 +406,8 @@ export function arenaToSlot(q, dir) {
   return { lat: -q.x * dir.y + q.y * dir.x, depth: ARENA_RADIUS + q.x * dir.x + q.y * dir.y };
 }
 
-export function drawFormation(ctx, game, pi, lane, drag) {
+// towerFight: true while a battle is raging at this lane's tower.
+export function drawFormation(ctx, game, pi, lane, drag, towerFight) {
   const W = ctx.canvas.width;
   const H = ctx.canvas.height;
   const dir = laneDirection(game, pi, lane);
@@ -432,6 +449,20 @@ export function drawFormation(ctx, game, pi, lane, drag) {
     ctx.stroke();
   }
   ctx.setLineDash([]);
+
+  // This lane's tower, standing behind the deployment zone.
+  const tq = slotToArena({ lat: 0, depth: -2.4 }, dir);
+  if (towerFight) {
+    ctx.fillStyle = `rgba(230,60,40,${0.25 + 0.15 * Math.sin(game.time * 8)})`;
+    ctx.beginPath();
+    ctx.arc(tq.x, tq.y, 2.6, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  drawTower(ctx, p.factionId, tq.x, tq.y, 3.2, false);
+  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.fillRect(tq.x - 1.6, tq.y + 1.9, 3.2, 0.32);
+  ctx.fillStyle = '#d94141';
+  ctx.fillRect(tq.x - 1.6, tq.y + 1.9, 3.2 * Math.max(0, p.hp / PLAYER_HP), 0.32);
 
   // Arrow toward the enemy.
   const tip = slotToArena({ lat: 0, depth: SPAWN_DEPTH + 2.6 }, dir);

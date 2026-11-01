@@ -345,3 +345,18 @@ export const STAT_ICON = {
 };
 
 export const STAT_LABEL = { hp: 'HP', acc: 'ACC', dmg: 'DMG', arm: 'ARM', eva: 'EVA', spd: 'SPD', rng: 'RNG' };
+
+const EXTRA_ICON = {
+  regen: '<svg viewBox="0 0 16 16"><path d="M6 1.5 H10 V6 H14.5 V10 H10 V14.5 H6 V10 H1.5 V6 H6 Z" fill="#5fd35f" stroke="#1d6b1d" stroke-width="1"/></svg>',
+  splash: '<svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.5" fill="none" stroke="#ff8a2a" stroke-width="1.3"/><circle cx="8" cy="8" r="4" fill="none" stroke="#ffb347" stroke-width="1.3"/><circle cx="8" cy="8" r="1.8" fill="#ff5a1a"/></svg>',
+};
+
+// An upgrade as a single badge: the icon of what it improves inside a ring in the
+// faction's colour, with a small up-arrow.
+export function upgradeIcon(factionId, upgrade) {
+  const k = FACTION_BY_ID[factionId].colors;
+  const key = Object.keys(upgrade.mods)[0];
+  const inner = (STAT_ICON[key] || EXTRA_ICON[key]).replace('<svg viewBox="0 0 16 16">', '<svg x="5" y="5" width="18" height="18" viewBox="0 0 16 16">');
+  return `<svg viewBox="0 0 28 28"><circle cx="14" cy="14" r="12.5" fill="${k.dark}" stroke="${k.main}" stroke-width="2"/>${inner}`
+    + '<path d="M21 3 L26 9 H23 V13 H19 V9 H16 Z" fill="#9fe39f" stroke="#1d4d1d" stroke-width="0.8"/></svg>';
+}

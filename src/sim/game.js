@@ -317,7 +317,7 @@ export class Game {
       }
     }
     this.armies = this.armies.filter((a) => a.units.length > 0 || a.state === 'battle');
-    this.fires = this.fires.filter((f) => this.time - f.start < f.len / FIRE_SPEED + 3);
+    this.fires = this.fires.filter((f) => this.time - f.start < f.len / FIRE_SPEED + 0.5);
   }
 
   reroute(a, alive) {

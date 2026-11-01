@@ -66,3 +66,13 @@ export function ensureSlots(player, lane) {
   }
   return lanes;
 }
+
+// Put the most recently bought unit of a type at (or near) a chosen spot.
+export function placeNewest(player, lane, typeId, want) {
+  const lanes = ensureSlots(player, lane);
+  const n = player.roster[lane][typeId] || 0;
+  if (!n) return;
+  const mine = lanes[typeId][n - 1];
+  const taken = player.faction.units.flatMap((u) => lanes[u.id].slice(0, player.roster[lane][u.id] || 0));
+  Object.assign(mine, nearestFree(want, taken, mine));
+}
